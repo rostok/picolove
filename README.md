@@ -1,3 +1,12 @@
+ROSTOK's CHANGES
+----------------
+
+* line endpoints for line(x,y) and line(x,y,col)
+* centered screen allways fits the window
+* parsed cart code is padded with extra newlines for correct line numbers in traceback
+* __no_pcall boolean option in conf.lua to replace pcall in api.run() with direct call to cart code this should give better traceback
+* secret palette
+
 PICOLOVE
 --------
 
@@ -67,3 +76,4 @@ Android Packaging:
 Replace the default cartridge (nocart.p8) with your game. Text (P8) or PNG (P8.PNG) is supported.
 Follow the [Android Game Packaging](https://bitbucket.org/MartinFelis/love-android-sdl2/wiki/Game_Packaging) steps.
 Optionally, for orientation rotation support (Portrait and Landscape), remove ```android:screenOrientation="landscape"``` in the AndroidManifest.xml
+
