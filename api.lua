@@ -799,15 +799,23 @@ function api.ovalfill(x0, y0, x1, y1, r, col)
 end
 
 function api.line(x0, y0, x1, y1, col)
+	if not x1 then
+		x0,y0,x1,y1=pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0
+	elseif not y1 then
+		col,x0,y0,x1,y1=x1,pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0		
+	end
+
 	if col then
 		color(col)
 	end
-
 
 	x0 = flr(tonumber(x0) or 0) + 1
 	y0 = flr(tonumber(y0) or 0) + 1
 	x1 = flr(tonumber(x1) or 0) + 1
 	y1 = flr(tonumber(y1) or 0) + 1
+	
+	pico8.line_endpoint_x = x1;
+	pico8.line_endpoint_y = y1;
 
 	local dx = x1 - x0
 	local dy = y1 - y0
@@ -905,12 +913,20 @@ function api.pal(c0, c1, p)
 		api.palt()
 	elseif p == 1 and c1 ~= nil then
 		c0 = flr(c0) % 16
-		c1 = flr(c1) % 16
+		if c1>15 or c1<0 then 
+			c1 = 16 + flr(c1) % 16
+		else 
+			c1 = flr(c1) % 16 
+		end
 		pico8.display_palette[c0] = pico8.palette[c1]
 		pico8.display_shader:send("palette", shdr_unpack(pico8.display_palette))
 	elseif c1 ~= nil then
 		c0 = flr(c0) % 16
-		c1 = flr(c1) % 16
+		if c1>15 or c1<0 then 
+			c1 = 16 + flr(c1) % 16
+		else
+		    c1 = flr(c1) % 16 
+		end
 		if pico8.draw_palette[c0] ~= c1 then
 			pico8.draw_palette[c0] = c1
 			pico8.draw_shader:send("palette", shdr_unpack(pico8.draw_palette))
@@ -1537,8 +1553,15 @@ function api.run()
 		love.graphics.setCanvas(pico8.screen)
 		love.graphics.origin()
 		restore_clip()
-		ok, e = pcall(f)
+		
+		if __no_pcall then
+			f() 
+		else
+			ok, e = pcall(f)
+		end
+
 		if not ok then
+			print("cartname" .. cartname)
 			error("Error running lua: " .. tostring(e))
 		else
 			log("lua completed")

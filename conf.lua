@@ -1,10 +1,11 @@
 __picolove_version = "0.1.0"
 
-scale = 4
-xpadding = 8.5
-ypadding = 3.5
-__pico_resolution = { 128, 128 }
-
+scale = 3
+xpadding = 0--8.5
+ypadding = 0--3.5
+__pico_resolution = { 480, 270 }
+__pico_cart = ""
+__no_pcall = true -- if this is true api.run() will call f() instead of pcall(f) for better traceback debugging
 function love.conf(t)
 	t.console = true
 

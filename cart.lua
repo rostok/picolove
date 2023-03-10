@@ -278,6 +278,11 @@ function cart.load_p8(filename)
 
 		-- extract the lua
 		lua = data:match("\n__lua__.-\n(.-)\n__[%w]+__") or ""
+		-- rostok: add newllines so that line numbering will match that of p8 file
+        local prefix = data:match("(.-)__lua__\n")
+        if prefix then
+          lua = prefix:gsub("[^\n]", "").."\n"..lua
+        end
 
 		-- load the sprites into an imagedata
 		-- generate a quad for each sprite index

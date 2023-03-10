@@ -11,7 +11,7 @@ local cart = require("cart")
 
 
 cartname = nil -- used by api.reload
-local initialcartname = nil -- used by esc
+local initialcartname = __pico_cart -- used by esc
 local love_args = nil -- luacheck: no unused
 
 pico8 = {
@@ -38,6 +38,22 @@ pico8 = {
 		{ 131, 118, 156, 255 },
 		{ 255, 119, 168, 255 },
 		{ 255, 204, 170, 255 },
+		{ 41, 24, 20, 255 },
+		{ 17, 29, 53, 255 },
+		{ 66, 33, 54, 255 },
+		{ 18, 83, 89, 255 },
+		{ 116, 47, 41, 255 },
+		{ 73, 51, 59, 255 },
+		{ 162, 136, 121, 255 },
+		{ 243, 239, 125, 255 },
+		{ 190, 18, 80, 255 },
+		{ 255, 108, 36, 255 },
+		{ 168, 231, 46, 255 },
+		{ 0, 181, 67, 255 },
+		{ 6, 90, 181, 255 },
+		{ 117, 70, 101, 255 },
+		{ 255, 110, 89, 255 },
+		{ 255, 157, 129, 255 }
 	},
 	color = nil,
 	spriteflags = {},
@@ -94,6 +110,8 @@ pico8 = {
 	spritesheet_data = nil,
 	spritesheet = nil,
 	spritesheet_changed = false,
+	line_endpoint_x = 0,
+	line_endpoint_y = 0,
 }
 pico8_glyphs = { [0] = "\0",
 	"¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "\t", "\n", "ᵇ",
@@ -360,7 +378,7 @@ function love.load(argv)
 	end
 
 	pico8.draw_shader = love.graphics.newShader([[
-extern float palette[16];
+extern float palette[32];
 
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
 	int index = int(color.r*15.0+0.5);
@@ -369,7 +387,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 	pico8.draw_shader:send("palette", shdr_unpack(pico8.draw_palette))
 
 	pico8.sprite_shader = love.graphics.newShader([[
-extern float palette[16];
+extern float palette[32];
 extern float transparent[16];
 
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
@@ -381,7 +399,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 	pico8.sprite_shader:send("transparent", shdr_unpack(pico8.pal_transparent))
 
 	pico8.text_shader = love.graphics.newShader([[
-extern float palette[16];
+extern float palette[32];
 
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
 	vec4 texcolor = Texel(texture, texture_coords);
@@ -395,7 +413,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 	pico8.text_shader:send("palette", shdr_unpack(pico8.draw_palette))
 
 	pico8.display_shader = love.graphics.newShader([[
-extern vec4 palette[16];
+extern vec4 palette[32];
 
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
 	int index = int(Texel(texture, texture_coords).r*15.0+0.5);
@@ -613,11 +631,12 @@ function flip_screen()
 	love.graphics.setBackgroundColor(3/255, 5/255, 10/255)
 	love.graphics.clear()
 
+--[[
 	local screen_w, screen_h = love.graphics.getDimensions()
 	if screen_w > screen_h then
 		love.graphics.draw(
 			pico8.screen,
-			screen_w / 2 - 64 * scale,
+			screen_w / 2 - pico8.resolution[1]/2 * scale,
 			ypadding * scale,
 			0,
 			scale,
@@ -627,12 +646,23 @@ function flip_screen()
 		love.graphics.draw(
 			pico8.screen,
 			xpadding * scale,
-			screen_h / 2 - 64 * scale,
+			screen_h / 2 - pico8.resolution[2]/2 * scale,
 			0,
 			scale,
 			scale
 		)
 	end
+--]]
+    -- Get the dimensions of the LOVE window
+    local window_w, window_h = love.graphics.getDimensions()
+    -- Calculate the scaling factor to fit the pico8 screen inside the window
+    local scale = math.min(window_w/pico8.resolution[1], window_h/pico8.resolution[2])
+    -- Calculate the dimensions of the scaled pico8 screen
+    local pico8_w, pico8_h = pico8.resolution[1] * scale, pico8.resolution[2] * scale
+    -- Calculate the offsets to center the scaled pico8 screen
+    local x_offset, y_offset = (window_w - pico8_w) / 2, (window_h - pico8_h) / 2
+    -- Draw the scaled pico8 screen centered on the LOVE display
+    love.graphics.draw(pico8.screen, x_offset, y_offset, 0, scale, scale)
 
 	love.graphics.present()
 
