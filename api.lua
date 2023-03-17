@@ -50,6 +50,11 @@ end
 api.warning = warning
 api.setfps = setfps
 
+-- returns picolove conf resolution width and height
+function api._getresolution()
+    return pico8.resolution[1],pico8.resolution[2]
+end
+
 function api._picolove_end()
 	if
 		not pico8.cart._update
@@ -722,6 +727,18 @@ function api.rectfill(x0, y0, x1, y1, col)
 	)
 end
 
+function api.circ2(ox, oy, r, col)
+	if col then
+		color(col)
+	end
+	love.graphics.circle(
+		"line",
+		flr(ox),
+		flr(oy),
+		flr(r)
+	)
+end
+
 function api.circ(ox, oy, r, col)
 	if col then
 		color(col)
@@ -799,24 +816,48 @@ function api.ovalfill(x0, y0, x1, y1, r, col)
 end
 
 function api.line(x0, y0, x1, y1, col)
-	if not x1 then
-		x0,y0,x1,y1=pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0
-	elseif not y1 then
-		col,x0,y0,x1,y1=x1,pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0		
+	if not x0 then -- Invalidates the current endpoint.
+    	pico8.line_endpoint_x = nil
+	    pico8.line_endpoint_y = nil
+	    return
+	end
+	if not y0 then -- Invalidates the current endpoint. Remembers color as the current pen color.
+    	pico8.line_endpoint_x = nil
+	    pico8.line_endpoint_y = nil
+	    color(x0)
+	    return
+	end
+	if not x1 then -- Draws a line from the current endpoint to (x1, y1) in the current pen color. If there is no current endpoint, nothing is drawn. Remembers (x1, y1) as the current endpoint.
+	    if pico8.line_endpoint_x then
+		    x0,y0,x1,y1=pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0
+		else
+			pico8.line_endpoint_x = x0
+			pico8.line_endpoint_y = y0
+			return
+		end
+	elseif not y1 then -- Draws a line from the current endpoint to (x1, y1) in the given color. If there is no current endpoint, nothing is drawn. Remembers (x1, y1) as the current endpoint and color as the current pen color.
+	    if pico8.line_endpoint_x then
+		    x0,y0,x1,y1,col=pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0,x1
+		else
+			pico8.line_endpoint_x = x0
+			pico8.line_endpoint_y = y0
+	        color(x1)
+			return
+		end
 	end
 
 	if col then
 		color(col)
 	end
 
+	pico8.line_endpoint_x = x1
+	pico8.line_endpoint_y = y1
+
 	x0 = flr(tonumber(x0) or 0) + 1
 	y0 = flr(tonumber(y0) or 0) + 1
 	x1 = flr(tonumber(x1) or 0) + 1
 	y1 = flr(tonumber(y1) or 0) + 1
 	
-	pico8.line_endpoint_x = x1;
-	pico8.line_endpoint_y = y1;
-
 	local dx = x1 - x0
 	local dy = y1 - y0
 	local stepx, stepy
