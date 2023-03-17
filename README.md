@@ -6,6 +6,9 @@ ROSTOK's CHANGES
 * parsed cart code is padded with extra newlines for correct line numbers in traceback
 * __no_pcall boolean option in conf.lua to replace pcall in api.run() with direct call to cart code this should give better traceback
 * secret palette
+* custom error handler with printing cart code lines at stacktrace
+* F5 to restart 
+* Ctrl+R to restart on error
 
 PICOLOVE
 --------
