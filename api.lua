@@ -55,6 +55,15 @@ function api._getresolution()
     return pico8.resolution[1],pico8.resolution[2]
 end
 
+-- generic object to expose various api
+function api._picolove()
+	return {
+		__profilingS=__profilingS,
+		profile=profile,
+		timer=love.timer
+	}
+end
+
 function api._picolove_end()
 	if
 		not pico8.cart._update
@@ -404,6 +413,13 @@ function api.pset(x, y, col)
 		color(col)
 	end
 	love.graphics.point(flr(x), flr(y))
+end
+
+function api.psets(col,t)
+	if col then
+		color(col)
+	end
+	love.graphics.points(t)
 end
 
 function api.pget(x, y)

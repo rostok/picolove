@@ -1,6 +1,9 @@
 package.path = package.path .. ";?.lua;lib/?.lua"
 love.filesystem.setRequirePath(package.path)
 
+profile = require("profile")
+
+print("picolove hello");
 require("strict")
 local QueueableSource = require("QueueableSource")
 
@@ -8,7 +11,6 @@ local bit = require("bit")
 
 local api = require("api")
 local cart = require("cart")
-
 
 cartname = nil -- used by api.reload
 local initialcartname = __pico_cart -- used by esc
@@ -382,6 +384,7 @@ extern float palette[32];
 
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
 	int index = int(color.r*15.0+0.5);
+	
 	return vec4(palette[index]/15.0, 0.0, 0.0, 1.0);
 }]])
 	pico8.draw_shader:send("palette", shdr_unpack(pico8.draw_palette))
@@ -393,6 +396,7 @@ extern float transparent[16];
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
 	int index = int(Texel(texture, texture_coords).r*15.0+0.5);
 	float alpha = transparent[index];
+	
 	return vec4(palette[index]/15.0, 0.0, 0.0 ,alpha);
 }]])
 	pico8.sprite_shader:send("palette", shdr_unpack(pico8.draw_palette))
@@ -407,6 +411,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 		return vec4(0.0,0.0,0.0,0.0);
 	}
 	int index = int(color.r*15.0+0.5);
+	
 	// lookup the color in the palette by index
 	return vec4(palette[index]/15.0, 0.0, 0.0, texcolor.a);
 }]])
@@ -417,6 +422,7 @@ extern vec4 palette[32];
 
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
 	int index = int(Texel(texture, texture_coords).r*15.0+0.5);
+	
 	// lookup the color in the palette by index
 	return palette[index]/255.0;
 }]])
@@ -432,7 +438,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 	local argpos = 1
 	local paramcount = 0
 
-	if argc >= 1 then
+    if argc >= 1 then
 		-- TODO: implement commandline options
 		while argpos <= argc do
 			if argv[argpos] == "-width" then
@@ -534,6 +540,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 		initialcartname = "nocart.p8"
 	end
 
+	loadWindowState()
+
 	_load(initialcartname)
 	api.run()
 end
@@ -594,11 +602,18 @@ end
 function love.update(_)
 	pico8.frames=pico8.frames+1
 	update_buttons()
+
+	if __profilingU>0 then profile.start() end
 	if pico8.cart._update60 then
 		pico8.cart._update60()
 	elseif pico8.cart._update then
 		pico8.cart._update()
 	end
+	if __profilingU>0 then profile.stop() end
+	
+	__profilingU = profileReport(__profilingU, "profileU.txt", 30)
+	__profilingS = profileReport(__profilingS, "profileS.txt", 30)
+	__profilingD = profileReport(__profilingD, "profileD.txt", 30)
 end
 
 function love.draw()
@@ -608,10 +623,12 @@ function love.draw()
 
 	love.graphics.setShader(pico8.draw_shader)
 
+	if __profilingD>0 then profile.start() end
 	-- run the cart's draw function
 	if pico8.cart._draw then
 		pico8.cart._draw()
 	end
+	if __profilingD>0 then profile.stop() end
 
 	-- draw the contents of pico screen to our screen
 	flip_screen()
@@ -880,12 +897,69 @@ end
 
 function love.keypressed(key)
 	if key == "r" and isCtrlOrGuiDown() and not isAltDown() then
+		log('reloading cart')
 		api.reload_cart()
 		api.run()
+	elseif key == "f7" and isCtrlOrGuiDown() then
+        local width, height, flags = love.window.getMode()
+		local x,y,d
+		love.graphics.setCanvas()
+		width =  pico8.resolution[1]*pico8.resolution[3]
+		height = pico8.resolution[2]*pico8.resolution[3]
+		if flags.x>1 then
+			x,y,d,width = 1,1376,2,1074
+		else
+			x,y,d = 1920-pico8.resolution[1]*pico8.resolution[3],1,1
+		end
+		love.window.setMode(width,height,{x=x,y=y,display=d})
+		saveWindowState()
+	elseif key == "f7" and not isCtrlOrGuiDown() and not isAltDown() then
+	    loadWindowState()
+	elseif key == "f9" and not isCtrlOrGuiDown() and not isAltDown() then
+		if __profilingU<0 then 
+			log('PROFILING UPDATE...')
+			__profilingU = __profilingFrames 
+		end
+	elseif key == "f9" and     isCtrlOrGuiDown() and not isAltDown() then
+		if __profilingD<0 then 
+			log('PROFILING DRAW...')
+			__profilingD = __profilingFrames
+		end
+	elseif key == "f9" and not isCtrlOrGuiDown() and     isAltDown() then
+		if __profilingS<0 then 
+			log('PROFILING SEPCIAL...')
+			__profilingS = __profilingFrames
+		end
+
+	-- elseif key == "f10" then
+	-- 	if __profiling then 
+	-- 		__profiling = false
+	-- 		local report = profile.report(25)
+	-- 		log(report)
+	-- 		profile.reset()
+
+	-- 		local file = love.filesystem.newFile("profile.txt", "w")
+	-- 		file:write(report)
+	-- 		file:close()
+		
+	-- 		log("PROFILING ENDS")
+	-- 	else
+	-- 		__profiling = true
+	-- 		log("PROFILING STARTS")
+	-- 	end
 	elseif key == "f5" then
-		package.loaded["conf"] = nil
+		log('restarting')
+	    saveWindowState()
+		-- local x,y,displayindex = love.window.getPosition()
+		-- local width, height, flags = love.window.getMode()
+		-- local fullscreen, fstype = love.window.getFullscreen()
+		-- package.loaded["conf"] = nil
 		love.event.quit('restart')
-		love.load({__pico_cart})
+		-- love.load({__pico_cart})
+		-- love.graphics.setCanvas()
+		-- love.window.setPosition( x, y, displayindex )
+		-- love.window.setMode( width, height, flags )
+		-- love.window.setFullscreen( fullscreen, fstype )
 	elseif
 		key == "escape"
 		and cartname ~= nil
@@ -1081,23 +1155,23 @@ end
 
 local utf8 = require("utf8")
 
-function add_code_to_traceback(trace,extra)
-    extra = extra or ""
+function add_code_to_traceback(trace,temp)
+	temp = temp or "  >> %1 "
 	local lines = {}
 	for line in love.filesystem.lines(__pico_cart) do table.insert(lines, line) end
 
     local err = {}
 	for l in trace:gmatch("(.-)\n") do
-			table.insert(err, l)
+		table.insert(err, l)
 	end
 
     for i, errMsg in ipairs(err) do
-      local l = errMsg:gsub("\t", ""):gsub("%[string \"(.-)\"%]", "%1") 
-      if l:sub(1,__pico_cart:len())==__pico_cart then
-        local lineNumber = tonumber(string.match(errMsg, ":%d+:"):sub(2, -2))
+	  local l = errMsg:match("%[string \"(.-)\"")
+      if l==__pico_cart  then
+        local lineNumber = tonumber(errMsg:match(":(%d+)"))
         local line = lineNumber..":"..lines[lineNumber]
-        table.insert(err, i+1, extra)
-        table.insert(err, i+1, extra.."  >>  "..line)
+		line = temp:match("(.-)%%1")..line..temp:match("%%1(.*)$")
+    	err[i] = err[i] .. line
       end
     end
 	return table.concat(err, "\n")
@@ -1105,7 +1179,7 @@ end
 
 local function error_printer(msg, layer)
     local trace = debug.traceback("Error: " .. tostring(msg), 1+(layer or 1))
-    trace = add_code_to_traceback(trace,"\n\t")
+    trace = add_code_to_traceback(trace,"\n  >> %1 \n")
 	print((trace:gsub("\n[^\n]+$", "")))
 end
 
@@ -1143,12 +1217,13 @@ function love.errorhandler(msg)
 	if love.audio then love.audio.stop() end
 
 	love.graphics.reset()
-	local font = love.graphics.setNewFont(14)
+	-- local font = love.graphics.setNewFont(14)
+	local font = love.graphics.setNewFont("dat/lucon.ttf",14)
 
 	love.graphics.setColor(1, 1, 1)
 
 	local trace = debug.traceback()
-    trace = add_code_to_traceback(trace,"\t")
+    trace = add_code_to_traceback(trace,"\n  >> %1 \n")
 
 	love.graphics.origin()
 
@@ -1177,8 +1252,7 @@ function love.errorhandler(msg)
 	end
 
 	local p = table.concat(err, "\n")
-	p = p:gsub("\t", "")
-	p = p:gsub("%[string \"(.-)\"%]", "%1")
+	p = p:gsub("\t", ""):gsub("%[string \"(.-)\"%]", "%1")
 
 	local function draw()
 		if not love.graphics.isActive() then return end
@@ -1210,13 +1284,14 @@ function love.errorhandler(msg)
 			elseif e == "keypressed" and a == "c" and love.keyboard.isDown("lctrl", "rctrl") then
 				copyToClipboard()
 			elseif e == "keypressed" and a == "r" and love.keyboard.isDown("lctrl", "rctrl") then
+                log("restarting from error");
+			    saveWindowState()
                 package.loaded["conf"] = nil
-                --love.event.quit('restart')
+                love.event.quit('restart')
                 --love.load({__pico_cart})
                 --love.graphics.setCanvas()
-                api.reload_cart()
-                api.run()
-                return
+                --api.reload_cart()
+                --api.run()
 			elseif e == "touchpressed" then
 				local name = love.window.getTitle()
 				if #name == 0 or name == "Untitled" then name = "Game" end
@@ -1240,4 +1315,94 @@ function love.errorhandler(msg)
 		end
 	end
 
+end
+
+-- checks if counter reached 0, if so writes report
+-- decreases counter and returns its value
+function profileReport(counter, filename, depth)
+	if counter == 0 then
+		local report = profile.report(depth or 30)
+		-- report = add_code_to_traceback(report," %1 ")
+		report = add_code_to_traceback(report," %1")
+		log(filename)
+		log(report)
+		profile.reset()
+		writeFile(filename, report)
+		if rawget(_G, 'jit') then jit.on() end			
+	end
+	return counter - 1
+end
+
+function writeFile(name, contents)
+    local file = love.filesystem.newFile(name, "w")
+    file:write(contents)
+    file:close()
+end
+
+function saveWindowState()
+    local window = love.window
+    if not window then return end
+    --local dx,dy = window.getPosition()
+    local width, height, flags = window.getMode()
+    local state = {
+        --dx = tostring(dx),
+        --dy = tostring(dy),
+        width = tostring(width),
+        height = tostring(height)
+    }
+    for k, v in pairs(flags) do
+        state[k] = tostring(v)
+    end
+    local lines = {}
+    for k, v in pairs(state) do
+        lines[#lines+1] = k .. "=" .. v
+    end
+    writeFile("picolovewindow.txt", table.concat(lines, "\n").."\n\n\n")
+end
+
+function loadWindowState()
+    local window = love.window
+    if not window then return end
+    local filename = "picolovewindow.txt"
+    if love.filesystem.getInfo(filename) then
+        local file = love.filesystem.newFile(filename, "r")
+        local contents = file:read()
+        file:close()
+        local state = {}
+        for k, v in string.gmatch(contents, "%s*([^=]+)%s*=%s*([^%c]+)%c?") do state[k] = v end
+
+
+        local dx,dy = window.getPosition()
+        local x, y, width, height = tonumber(state.x) or dx, tonumber(state.y) or dy, tonumber(state.width) or 960, tonumber(state.height) or 540
+        local flags = {
+            fullscreen = state.fullscreen == "true",
+            fullscreentype = state.fullscreentype,
+            vsync = tonumber(state.vsync),
+            msaa = tonumber(state.msaa),
+            stencil = state.stencil == "true",
+            depth = tonumber(state.depth),
+            resizable = state.resizable == "true",
+            borderless = state.borderless == "true",
+            centered = state.centered == "true",
+            display = tonumber(state.display),
+            minwidth = tonumber(state.minwidth),
+            minheight = tonumber(state.minheight)
+        }
+        flags.fullscreen = flags.fullscreen or false
+        flags.fullscreentype = flags.fullscreentype or "desktop"
+        flags.vsync = flags.vsync or 1
+        flags.msaa = flags.msaa or 0
+        flags.stencil = flags.stencil or true
+        flags.depth = flags.depth or 0
+        flags.resizable = flags.resizable or true
+        flags.borderless = flags.borderless or false
+        flags.centered = flags.centered or true
+        flags.display = flags.display or 1
+        flags.minwidth = flags.minwidth or 480
+        flags.minheight = flags.minheight or 270
+        --log("window state", x, y, width, height, flags.display, state.display)
+        love.graphics.setCanvas()
+        window.setMode(width, height, flags)
+        window.setPosition(x, y, flags.display)
+    end
 end
