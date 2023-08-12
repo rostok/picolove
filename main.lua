@@ -3,6 +3,10 @@ love.filesystem.setRequirePath(package.path)
 
 profile = require("profile")
 
+local debugserver = nil
+-- local debugserver = require("debugserver")
+-- debugserver.startServer(1234) -- Replace with your desired port number
+
 print("picolove hello");
 require("strict")
 local QueueableSource = require("QueueableSource")
@@ -13,10 +17,11 @@ local api = require("api")
 local cart = require("cart")
 
 cartname = nil -- used by api.reload
-local initialcartname = __pico_cart -- used by esc
+local initialcartname = nil -- used by esc
 local love_args = nil -- luacheck: no unused
 
 pico8 = {
+	frameLimiter = __pico_fps_limiter,
 	clip = nil,
 	fps = 30,
 	frametime = 1 / 30,
@@ -68,11 +73,15 @@ pico8 = {
 	cartdata = {},
 	cart = nil,
 	clipboard = "",
-	keypressed = {
+	last_keys = {}, -- keep track of keys pressed in the last frame
+	keys = {},      -- keep track of keys pressed in the current frame
+    keypressed = {
 		[0] = {},
 		[1] = {},
 	},
 	kbdbuffer={},
+	mouseButtonsStatePrev = 0,
+	mouseButtonsState = 0,
 	keymap = {
 		[0] = {
 			[0] = { "left", "kp4" },
@@ -206,7 +215,7 @@ function setColor(c)
 	love.graphics.setColor(c / 15, 0, 0, 1)
 end
 
-function _load(_cartname)
+function _loadCART(_cartname)
 	if type(_cartname) ~= "string" then
 		return false
 	end
@@ -255,6 +264,61 @@ function _load(_cartname)
 	end
 	return true
 end
+
+function _loadPURELUA(cartname)
+
+	cartname = "pico8/schifahren-purelove" -- HARDCODED
+
+	pico8.cart = new_sandbox()
+	pico8.cart.dofileLUA = dofile
+	pico8.cart.dofile = function (filename)
+        local file = love.filesystem.newFile(filename, "r")
+		if file then
+		  local chunk = file:read()
+		  file:close()
+		  chunk = "--[["..filename.."]".."]" .. chunk
+		  local f = load(chunk)
+		  setfenv(f,pico8.cart)
+		--   log("dofile",filename,"f",f)
+		  return f()
+		else
+		  error("File '" .. filename .. "' not found")
+		end
+	  end
+
+	pico8.cart.require = function (moduleName)
+		if package.loaded[moduleName] then
+		  -- Module has already been loaded, return it
+		  return package.loaded[moduleName]
+		else
+		  -- Module has not been loaded, try to load it
+		  local module = pico8.cart.dofile(moduleName .. ".lua")
+		  if module then
+			-- Module loaded successfully, add it to 'package.loaded' and return it
+			package.loaded[moduleName] = module
+			log("moduleName",moduleName,"module",module)
+			return module
+		  else
+			-- Module failed to load, raise an error
+			error("Module '" .. moduleName .. "' not found")
+		  end
+		end
+	  end
+	  
+    
+	local CART = pico8.cart.require(cartname)
+	if pico8.cart._init then
+		log("INITIALIZING")
+		pico8.cart._init()
+		log("INITIALIZED")
+	end
+	-- pico8.cart._update= CART._update
+	-- pico8.cart._draw= CART._draw
+	-- pico8.cart._init= CART._init
+end
+
+_load = _loadCART
+-- _load = _loadPURELUA
 
 function love.resize(w, h)
 	-- adjust stuff to fit the screen
@@ -528,7 +592,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 				require("test")
 			else
 				if initialcartname == nil or initialcartname == "" then
-					initialcartname = argv[argc]
+					local lastarg = argv[argc]
+					if lastarg:sub(-3)==".p8" or lastarg:sub(-4)==".lua" then initialcartname = lastarg end
 				end
 			end
 
@@ -537,7 +602,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 	end
 
 	if initialcartname == nil or initialcartname == "" then
-		initialcartname = "nocart.p8"
+		initialcartname = __pico_cart or "nocart.p8"
 	end
 
 	loadWindowState()
@@ -585,6 +650,8 @@ local function inside(x, y, x0, y0, w, h) -- luacheck: no unused
 end
 
 local function update_buttons()
+	pico8.mouseButtonsStatePrev = pico8.mouseButtonsState
+	pico8.mouseButtonsState = api.stat(34)
 	for p = 0, 1 do
 		for i = 0, #pico8.keymap[p] do
 			for _, _ in pairs(pico8.keymap[p][i]) do
@@ -614,6 +681,12 @@ function love.update(_)
 	__profilingU = profileReport(__profilingU, "profileU.txt", 30)
 	__profilingS = profileReport(__profilingS, "profileS.txt", 30)
 	__profilingD = profileReport(__profilingD, "profileD.txt", 30)
+
+	-- copy current frame keys to last frame keys, this must be AFTER update function
+	pico8.last_keys = {}
+	for k, v in pairs(pico8.keys) do
+		pico8.last_keys[k] = v
+	end	
 end
 
 function love.draw()
@@ -896,10 +969,11 @@ local function isAltDown()
 end
 
 function love.keypressed(key)
-	if key == "r" and isCtrlOrGuiDown() and not isAltDown() then
+	if key == "r" and isCtrlOrGuiDown() and not isAltDown() then -- ctrl+r
 		log('reloading cart')
 		api.reload_cart()
 		api.run()
+		return
 	elseif key == "f7" and isCtrlOrGuiDown() then
         local width, height, flags = love.window.getMode()
 		local x,y,d
@@ -907,7 +981,7 @@ function love.keypressed(key)
 		width =  pico8.resolution[1]*pico8.resolution[3]
 		height = pico8.resolution[2]*pico8.resolution[3]
 		if flags.x>1 then
-			x,y,d,width = 1,1376,2,1074
+			x,y,d,width,height = 1,1378,2,1078,540
 		else
 			x,y,d = 1920-pico8.resolution[1]*pico8.resolution[3],1,1
 		end
@@ -927,7 +1001,7 @@ function love.keypressed(key)
 		end
 	elseif key == "f9" and not isCtrlOrGuiDown() and     isAltDown() then
 		if __profilingS<0 then 
-			log('PROFILING SEPCIAL...')
+			log('PROFILING SPECIAL...')
 			__profilingS = __profilingFrames
 		end
 
@@ -976,12 +1050,12 @@ function love.keypressed(key)
 		pico8.clipboard = love.system.getClipboardText()
 	elseif pico8.can_pause and (key == "pause" or key == "p") then
 		paused = not paused
-	elseif key == "f1" or key == "f6" then
+	elseif key == "f1" then
 		-- screenshot
 		local filename = cartname .. "-" .. os.time() .. ".png"
 		local screenshot = love.graphics.captureScreenshot(filename)
 		log("saved screenshot to", filename)
-	elseif key == "f3" or key == "f8" or (key=="8" and isCtrlOrGuiDown()) then
+	elseif key == "f3" or (key=="8" and isCtrlOrGuiDown()) then
 		-- start recording
 		if not love.filesystem.getInfo("gifs", "directory") and not love.filesystem.createDirectory("gifs") then
 			log('failed to create gif directory')
@@ -1030,6 +1104,7 @@ function love.keypressed(key)
 	if pico8.cart and pico8.cart._keydown then
 		return pico8.cart._keydown(key)
 	end
+	pico8.keys[key] = true
 end
 
 function love.keyreleased(key)
@@ -1046,6 +1121,7 @@ function love.keyreleased(key)
 	if pico8.cart and pico8.cart._keyup then
 		return pico8.cart._keyup(key)
 	end
+	pico8.keys[key] = nil
 end
 
 function love.textinput(text)
@@ -1078,9 +1154,9 @@ function love.wheelmoved(_, y)
 	pico8.mwheel = pico8.mwheel + y
 end
 
-function love.graphics.point(x, y)
-	love.graphics.rectangle("fill", x, y, 1, 1)
-end
+-- function love.graphics.point(x, y)
+	-- love.graphics.rectangle("fill", x, y, 1, 1)
+-- end
 
 function love.run()
 	if love.load then
@@ -1096,6 +1172,8 @@ function love.run()
 
 	-- Main loop time.
 	return function()
+		local limiter_time = love.timer.getTime() -- for __pico_fps_limiter / pico.frameLimiter
+
 		-- Process events.
 		if love.event then
 			love.graphics.setCanvas() -- TODO: Rework this
@@ -1129,6 +1207,12 @@ function love.run()
 				update_audio(pico8.frametime)
 			end
 			dt = dt - pico8.frametime
+			-- this forces while loop to finish imidiatley without update catching up, used after long operations like savegame loading/saving etc
+			if pico8.clearDTdelay then
+				love.timer.step()
+				pico8.clearDTdelay = false
+				dt = 0
+			end
 			render = true
 		end
 
@@ -1147,8 +1231,20 @@ function love.run()
 			pico8.mwheel = 0
 		end
 
+		-- debug server message handling, note that it can be uninitialized
+		if debugserver then
+			local message = debugserver.receive()
+			if message~="" then
+				print("Received message: " .. message)
+			end
+		end
+			
 		if love.timer then
-			love.timer.sleep(0.001)
+			if pico8.frameLimiter>0 then 
+				love.timer.sleep( 1.0/pico8.frameLimiter - (love.timer.getTime()-limiter_time) ) 
+			else
+				love.timer.sleep(0.001)
+			end
 		end
 	end
 end
@@ -1161,14 +1257,14 @@ function add_code_to_traceback(trace,temp)
 	for line in love.filesystem.lines(__pico_cart) do table.insert(lines, line) end
 
     local err = {}
-	for l in trace:gmatch("(.-)\n") do
-		table.insert(err, l)
-	end
+	if trace:find("\n")==nil then trace = trace .. "\n" end
+	for l in trace:gmatch("(.-)\n") do table.insert(err, l) end
 
-    for i, errMsg in ipairs(err) do
+	for i, errMsg in ipairs(err) do
 	  local l = errMsg:match("%[string \"(.-)\"")
-      if l==__pico_cart  then
-        local lineNumber = tonumber(errMsg:match(":(%d+)"))
+	  local m = errMsg:match("%Error loading lua: (.-):%d+:")
+      if l==__pico_cart or m==__pico_cart then
+        local lineNumber = tonumber(errMsg:gsub("(.-)Error ",""):match(":(%d+)"))
         local line = lineNumber..":"..lines[lineNumber]
 		line = temp:match("(.-)%%1")..line..temp:match("%%1(.*)$")
     	err[i] = err[i] .. line
@@ -1228,17 +1324,20 @@ function love.errorhandler(msg)
 	love.graphics.origin()
 
 	local sanitizedmsg = {}
+    -- msg = add_code_to_traceback(msg,"\n  >> %1 \n")
 	for char in msg:gmatch(utf8.charpattern) do
 		table.insert(sanitizedmsg, char)
 	end
 	sanitizedmsg = table.concat(sanitizedmsg)
+	local sanitizedmsgOld = sanitizedmsg
+    sanitizedmsg = add_code_to_traceback(sanitizedmsg,"\n  >> %1 \n")
 
 	local err = {}
 
 	table.insert(err, "Error\n")
 	table.insert(err, sanitizedmsg)
 
-	if #sanitizedmsg ~= #msg then
+	if #sanitizedmsgOld ~= #msg then
 		table.insert(err, "Invalid UTF-8 string in error message.")
 	end
 
@@ -1281,9 +1380,9 @@ function love.errorhandler(msg)
 				return 1
 			elseif e == "keypressed" and a == "escape" then
 				return 1
-			elseif e == "keypressed" and a == "c" and love.keyboard.isDown("lctrl", "rctrl") then
+			elseif e == "keypressed" and a == "c" and love.keyboard.isDown("lctrl", "rctrl") then -- ctrl+c
 				copyToClipboard()
-			elseif e == "keypressed" and a == "r" and love.keyboard.isDown("lctrl", "rctrl") then
+			elseif e == "keypressed" and a == "r" and love.keyboard.isDown("lctrl", "rctrl") then -- ctrl+r
                 log("restarting from error");
 			    saveWindowState()
                 package.loaded["conf"] = nil
@@ -1327,16 +1426,13 @@ function profileReport(counter, filename, depth)
 		log(filename)
 		log(report)
 		profile.reset()
-		writeFile(filename, report)
-		if rawget(_G, 'jit') then jit.on() end			
+		api.writeFile(filename, report)
+
+		-- set tab separated clipboard
+		log("clipboard set")
+		love.system.setClipboardText( (report.."\n"):gsub('[^\n]*%+%-[^\n]*\n', ''):gsub('|', '\t') )
 	end
 	return counter - 1
-end
-
-function writeFile(name, contents)
-    local file = love.filesystem.newFile(name, "w")
-    file:write(contents)
-    file:close()
 end
 
 function saveWindowState()
@@ -1357,7 +1453,7 @@ function saveWindowState()
     for k, v in pairs(state) do
         lines[#lines+1] = k .. "=" .. v
     end
-    writeFile("picolovewindow.txt", table.concat(lines, "\n").."\n\n\n")
+    api.writeFile("picolovewindow.txt", table.concat(lines, "\n").."\n\n\n")
 end
 
 function loadWindowState()
@@ -1388,6 +1484,7 @@ function loadWindowState()
             minwidth = tonumber(state.minwidth),
             minheight = tonumber(state.minheight)
         }
+        if love.window.getDisplayCount() < flags.display then flags.display = 1 x=0 y=0 end
         flags.fullscreen = flags.fullscreen or false
         flags.fullscreentype = flags.fullscreentype or "desktop"
         flags.vsync = flags.vsync or 1
