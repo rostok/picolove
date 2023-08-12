@@ -94,6 +94,10 @@ function profile.stop()
     end
   end
   collectgarbage('collect')
+  -- enable JIT if avaialbe
+  if rawget(_G, 'jit') then
+    jit.on()
+  end
 end
 
 --- Resets all collected data.
@@ -141,12 +145,13 @@ function profile.query(limit)
     if _tcalled[f] then
       dt = clock() - _tcalled[f]
     end
-    t[i] = { i, _labeled[f] or '?', _ncalls[f], _telapsed[f] + dt, _defined[f] }
+    t[i] = { i, _labeled[f] or '?', _ncalls[f], _telapsed[f] + dt, (_telapsed[f] + dt)*1000/_ncalls[f], _defined[f] }
   end
   return t
 end
 
-local cols = { 3, 29, 11, 24, 52 }
+local cols = { 3, 29, 8, 10, 13, 52 }
+local rightalign = { true, false, true, true, true, false }
 
 --- Generates a text report.
 -- @tparam[opt] number limit Maximum number of rows
@@ -154,13 +159,19 @@ function profile.report(n)
   local out = {}
   local report = profile.query(n)
   for i, row in ipairs(report) do
-    for j = 1, 5 do
+    for j = 1, 6 do
       local s = row[j]
       local l2 = cols[j]
+      local ra = rightalign[j]
+      if j==4 or j==5 then s = string.format("%.6f", s) end
       s = tostring(s)
-      local l1 = s:len()
+      local l1 = s:len() or 0
       if l1 < l2 then
-        s = s..(' '):rep(l2-l1)
+        if ra then 
+          s = (' '):rep(l2-l1)..s
+        else
+          s = s..(' '):rep(l2-l1)
+        end
       elseif l1 > l2 then
         s = s:sub(l1 - l2 + 1, l1)
       end
@@ -169,8 +180,8 @@ function profile.report(n)
     out[i] = table.concat(row, ' | ')
   end
 
-  local row = " +-----+-------------------------------+-------------+--------------------------+------------------------------------------------------+ \n"
-  local col = " | #   | Function                      | Calls       | Time                     | Code                                                 | \n"
+  local row = " +-----+-------------------------------+----------+------------+---------------+------------------------------------------------------+ \n"
+  local col = " | #   | Function                      | Calls    | Time (s)   | Per Call (ms) |Code                                                  | \n"
   local sz = row..col..row
   if #out > 0 then
     sz = sz..' | '..table.concat(out, ' | \n | ')..' | \n'
