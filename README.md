@@ -10,6 +10,17 @@ ROSTOK's CHANGES
 * F5 to restart 
 * Ctrl+R to restart on error
 
+* api exposing: serpent, big, debug, os, _draw, io, loadstring, dofile,
+* changes mostly for speed gain or pixel position fixes: color, pset, pget (added lookup), print returning x,y diff, rect, rectfill, circ, circfill, line, rnd, min, max, mid, add, split
+* new functions: 
+  * writeFile, readFile
+  * lognl - log without newline
+  * circ2, ciccfill2, line2 - shortcuts to native love gfx functions as they are faster
+  * oval, ovalfill
+  * mousePressed, released, hasFocus, isDown, isPressed, isReleased - diffrent keyboard handling
+  * del2, deli - a little faster
+  * lastof
+
 PICOLOVE
 --------
 
