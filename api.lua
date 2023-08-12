@@ -1,11 +1,18 @@
 local api = {}
 
 local flr = math.floor
+api.math = math
+api.bit = bit
+api.debug = debug
+api.os = os
+api.serpent = require("serpent")
 
 local function color(c)
-	c = flr(c or 0) % 16
-	pico8.color = c
-	setColor(c)
+	if c ~= pico8.color then -- rostok: skip if this is current color
+		c = flr(c or 0) % 16
+		pico8.color = c
+		setColor(c)
+	end
 end
 
 local function warning(msg)
@@ -56,11 +63,19 @@ function api._getresolution()
 end
 
 -- generic object to expose various api
+function api._profileReport(counter, filename, depth)
+	profileReport(counter, filename, depth)
+end
+
+-- generic object to expose various api
 function api._picolove()
 	return {
 		__profilingS=__profilingS,
 		profile=profile,
-		timer=love.timer
+		_G=_G,
+		timer=love.timer,
+		pico8=pico8,
+		load=function (code) local f = load(code) setfenv(f,pico8.cart) return f() end
 	}
 end
 
@@ -71,6 +86,18 @@ function api._picolove_end()
 		and not pico8.cart._draw
 	then
 		api.printh("cart finished")
+	end
+end
+
+function api._picolove_draw()
+	love.graphics.setCanvas() -- TODO: Rework this
+	love.event.pump()
+	love.graphics.setCanvas(pico8.screen)
+	if love.graphics and love.graphics.isActive() then
+		love.graphics.origin()
+		if love.draw then
+			love.draw()
+		end
 	end
 end
 
@@ -409,20 +436,42 @@ function api.splore()
 end
 
 function api.pset(x, y, col)
-	if col then
-		color(col)
-	end
-	love.graphics.point(flr(x), flr(y))
+	if col and col ~= pico8.color then color(col) end -- rostok: skip color if same
+	love.graphics.points(flr(x), flr(y))
 end
 
-function api.psets(col,t)
+function api.psets(col,...)
 	if col then
 		color(col)
 	end
-	love.graphics.points(t)
+	love.graphics.points(...)
 end
+
+local canvasFrameNumber = nil
+local canvasGrabbed = nil
 
 function api.pget(x, y)
+	x= x - pico8.camera_x
+	y= y - pico8.camera_y
+	if
+		x >= 0
+		and x < pico8.resolution[1]
+		and y >= 0
+		and y < pico8.resolution[2]
+	then
+		if canvasFrameNumber~=pico8.frames then
+			canvasFrameNumber = pico8.frames
+			love.graphics.setCanvas()
+			canvasGrabbed = pico8.screen:newImageData()
+			love.graphics.setCanvas(pico8.screen)
+		end
+		local r = canvasGrabbed:getPixel(flr(x), flr(y))
+		return r * 15
+	end
+	return -1
+end
+
+function api.pgetOLD(x, y)
 	x= x - pico8.camera_x
 	y= y - pico8.camera_y
 	if
@@ -437,13 +486,14 @@ function api.pget(x, y)
 		local r = __screen_img:getPixel(flr(x), flr(y))
 		return r * 15
 	end
-	warning(string.format("pget out of screen %d, %d", x, y))
+	-- warning(string.format("pget out of screen %d, %d", x, y))
 	return 0
 end
 
-function api.color(col)
-	color(col)
-end
+api.color = color
+-- function api.color(col)
+-- 	color(col)
+-- end
 
 -- workaround for non printable chars
 local tostring_org = tostring
@@ -486,11 +536,11 @@ function api.print(...)
 	if x == nil then
 		x = pico8.cursor[1]
 	end
-	if canscroll and y > 121 then
+	if canscroll and y > pico8.resolution[2]-7 then -- 121
 		local c = col or pico8.color
 		scroll(6)
-		y = 120
-		api.rectfill(0, y, 127, y + 6, 0)
+		y = pico8.resolution[2]-8 -- 120
+		api.rectfill(0, y, pico8.resolution[2]-1, y + 6, 0) -- 127
 		api.color(c)
 		api.cursor(0, y + 6)
 	end
@@ -503,10 +553,21 @@ function api.print(...)
 		return glyph_edgecases[gl] or gl end)
 
 	love.graphics.setShader(pico8.text_shader)
-	love.graphics.print(to_print, flr(x), flr(y))
+	love.graphics.print(to_print, flr(x)-1, flr(y)-1)
+
+	-- return x,y being right and bottom coordinates
+	str = to_print
+	local maxLineLength = 0
+	for line in str:gmatch("[^\n]+") do maxLineLength = math.max(maxLineLength, #line) end
+	local newX = x + maxLineLength * 4
+	local newY = y + (1+select(2, str:gsub("\n", "\n"))) * 6
+	return newX, newY
 end
 
 api.printh = print
+api.io = io
+api.loadstring = loadstring
+api.dofile = dofile
 
 function api.cursor(x, y, col)
 	if col then
@@ -712,34 +773,60 @@ end
 
 function api.rect(x0, y0, x1, y1, col)
 	-- GTODO: x0=x1
-	if col then
-		color(col)
-	end
+	if col then color(col) end
+	
+	if x0==x1 and y0==y1 then return love.graphics.points(x0,y0) end
+	if x0==x1 or y0==y1 then return love.graphics.line(x0,y0,x1,y1) end
+	-- x0,y0,x1,y1 = flr(x0),flr(y0),flr(x1),flr(y1)
+	-- love.graphics.line(x0,y0,x1,y0)
+	-- love.graphics.line(x1,y0,x1,y1)
+	-- love.graphics.line(x1,y1,x0,y1)
+	-- love.graphics.line(x0,y1,x0,y0)
+
 	love.graphics.rectangle(
 		"line",
-		flr(x0) + 1,
-		flr(y0) + 1,
+		flr(x0),
+		flr(y0),
 		flr(x1 - x0),
 		flr(y1 - y0)
 	)
+
+	-- x0 = flr(x0)
+	-- x1 = flr(x1)
+	-- y0 = flr(y0)
+	-- y1 = flr(y1)
+	-- if x1<x0 then x0,x1=x1,x0 end
+	-- if y1<y0 then y0,y1=y1,y0 end
+	-- love.graphics.rectangle(
+	-- 	"line",
+	-- 	x0,
+	-- 	y0,
+	-- 	x1 - x0,
+	-- 	y1 - y0
+	-- )
 end
 
 function api.rectfill(x0, y0, x1, y1, col)
-	if col then
-		color(col)
-	end
+	if col then color(col) end
 	if x1 < x0 then
 		x0, x1 = x1, x0
 	end
 	if y1 < y0 then
 		y0, y1 = y1, y0
 	end
+	-- love.graphics.rectangle(
+	-- 	"fill",
+	-- 	flr(x0),
+	-- 	flr(y0),
+	-- 	flr(x1 - x0) + 1,
+	-- 	flr(y1 - y0) + 1
+	-- )
 	love.graphics.rectangle(
 		"fill",
-		flr(x0),
-		flr(y0),
-		flr(x1 - x0) + 1,
-		flr(y1 - y0) + 1
+		flr(x0)-1,
+		flr(y0)-1,
+		flr(x1 - x0)+1,
+		flr(y1 - y0)+1
 	)
 end
 
@@ -747,11 +834,35 @@ function api.circ2(ox, oy, r, col)
 	if col then
 		color(col)
 	end
+	-- love.graphics.circle(
+	-- 	"line",
+	-- 	flr(ox),
+	-- 	flr(oy),
+	-- 	flr(r)
+	-- )
 	love.graphics.circle(
 		"line",
-		flr(ox),
-		flr(oy),
-		flr(r)
+		(ox-.5),
+		(oy-.5),
+		(r+.25)
+	)
+end
+
+function api.circfill2(ox, oy, r, col)
+	if col then
+		color(col)
+	end
+	-- love.graphics.circle(
+	-- 	"fill",
+	-- 	flr(ox),
+	-- 	flr(oy),
+	-- 	flr(r)
+	-- )
+	love.graphics.circle(
+		"fill",
+		(ox-.5),
+		(oy-.5),
+		(r+.25)
 	)
 end
 
@@ -759,8 +870,8 @@ function api.circ(ox, oy, r, col)
 	if col then
 		color(col)
 	end
-	ox = flr(ox) + 1
-	oy = flr(oy) + 1
+	ox = flr(ox)-- + 1 -- rostok, making top-left pixel 1,1 not 0,0
+	oy = flr(oy)-- + 1 -- rostok, making top-left pixel 1,1 not 0,0
 	r = flr(r)
 	local points = {}
 	local x = r
@@ -794,8 +905,8 @@ function api.circfill(cx, cy, r, col)
 	if col then
 		color(col)
 	end
-	cx = flr(cx)
-	cy = flr(cy)
+	cx = flr(cx)-1
+	cy = flr(cy)-1
 	r = flr(r)
 	local x = r
 	local y = 0
@@ -823,15 +934,21 @@ function api.circfill(cx, cy, r, col)
 	end
 end
 
-function api.oval(x0, y0, x1, y1, r, col)
-	--TODO: implement
+function api.oval(x0, y0, x1, y1, col)
+	if col then color(col) end
+	local x,y=(x1+x0)/2,(y1+y0)/2
+	local rx,ry=math.abs(x1-x0)/2,math.abs(y1-y0)/2
+	love.graphics.ellipse("line",x,y,rx,ry)
 end
 
-function api.ovalfill(x0, y0, x1, y1, r, col)
-	--TODO: implement
+function api.ovalfill(x0, y0, x1, y1, col)
+	if col then color(col) end
+	local x,y=(x1+x0)/2,(y1+y0)/2
+	local rx,ry=math.abs(x1-x0)/2,math.abs(y1-y0)/2
+	love.graphics.ellipse("fill",x,y,rx,ry)
 end
 
-function api.line(x0, y0, x1, y1, col)
+function api.line2(x0, y0, x1, y1, col)
 	if not x0 then -- Invalidates the current endpoint.
     	pico8.line_endpoint_x = nil
 	    pico8.line_endpoint_y = nil
@@ -840,7 +957,7 @@ function api.line(x0, y0, x1, y1, col)
 	if not y0 then -- Invalidates the current endpoint. Remembers color as the current pen color.
     	pico8.line_endpoint_x = nil
 	    pico8.line_endpoint_y = nil
-	    color(x0)
+	    if x0 ~= pico8.color then color(x0) end -- rostok: skip color if same
 	    return
 	end
 	if not x1 then -- Draws a line from the current endpoint to (x1, y1) in the current pen color. If there is no current endpoint, nothing is drawn. Remembers (x1, y1) as the current endpoint.
@@ -857,23 +974,80 @@ function api.line(x0, y0, x1, y1, col)
 		else
 			pico8.line_endpoint_x = x0
 			pico8.line_endpoint_y = y0
-	        color(x1)
+			if x1 ~= pico8.color then color(x1) end -- rostok: skip color if same
 			return
 		end
 	end
 
-	if col then
-		color(col)
-	end
+	if col and col ~= pico8.color then color(col) end -- rostok: skip color if same
 
 	pico8.line_endpoint_x = x1
 	pico8.line_endpoint_y = y1
-
-	x0 = flr(tonumber(x0) or 0) + 1
-	y0 = flr(tonumber(y0) or 0) + 1
-	x1 = flr(tonumber(x1) or 0) + 1
-	y1 = flr(tonumber(y1) or 0) + 1
 	
+	-- x0 = flr(x0 or 0) + 1 -- x0 = flr(tonumber(x0) or 0) + 1
+	-- y0 = flr(y0 or 0) + 1 -- y0 = flr(tonumber(y0) or 0) + 1
+	-- x1 = flr(x1 or 0) + 1 -- x1 = flr(tonumber(x1) or 0) + 1
+	-- y1 = flr(y1 or 0) + 1 -- y1 = flr(tonumber(y1) or 0) + 1
+	if x0<=x1 then
+		x0,x1=flr(x0-.5),math.ceil(x1)
+	else
+		x0,x1=math.ceil(x0),flr(x1-.5)
+	end
+	if y0<=y1 then
+		y0,y1=flr(y0-.5),math.ceil(y1)
+	else
+		y0,y1=math.ceil(y0),flr(y1-.5)
+	end
+	
+	return love.graphics.line(x0,y0,x1,y1)
+end
+
+function api.line(x0, y0, x1, y1, col)
+	if not x0 then -- Invalidates the current endpoint.
+    	pico8.line_endpoint_x = nil
+	    pico8.line_endpoint_y = nil
+	    return
+	end
+	if not y0 then -- Invalidates the current endpoint. Remembers color as the current pen color.
+    	pico8.line_endpoint_x = nil
+	    pico8.line_endpoint_y = nil
+	    if x0 ~= pico8.color then color(x0) end -- rostok: skip color if same
+	    return
+	end
+	if not x1 then -- Draws a line from the current endpoint to (x1, y1) in the current pen color. If there is no current endpoint, nothing is drawn. Remembers (x1, y1) as the current endpoint.
+	    if pico8.line_endpoint_x then
+		    x0,y0,x1,y1=pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0
+		else
+			pico8.line_endpoint_x = x0
+			pico8.line_endpoint_y = y0
+			return
+		end
+	elseif not y1 then -- Draws a line from the current endpoint to (x1, y1) in the given color. If there is no current endpoint, nothing is drawn. Remembers (x1, y1) as the current endpoint and color as the current pen color.
+	    if pico8.line_endpoint_x then
+		    x0,y0,x1,y1,col=pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0,x1
+		else
+			pico8.line_endpoint_x = x0
+			pico8.line_endpoint_y = y0
+			if x1 ~= pico8.color then color(x1) end -- rostok: skip color if same
+			return
+		end
+	end
+
+	if col and col ~= pico8.color then color(col) end -- rostok: skip color if same
+
+	pico8.line_endpoint_x = x1
+	pico8.line_endpoint_y = y1
+	
+	-- if x0==x1 or y0==y1 then return love.graphics.line(flr(x0),flr(y0),ceil(x1),ceil(y1)) end
+	-- if x0==x1 then return love.graphics.line(flr(x0),flr(y0),flr(x1)+1,flr(y1)) end
+	-- if y0==y1 then return love.graphics.line(flr(x0),flr(y0),flr(x1),flr(y1)+1) end
+
+	x0 = flr(x0 or 0) -- + 1 -- x0 = flr(tonumber(x0) or 0) + 1
+	y0 = flr(y0 or 0) -- + 1 -- y0 = flr(tonumber(y0) or 0) + 1
+	x1 = flr(x1 or 0) -- + 1 -- x1 = flr(tonumber(x1) or 0) + 1
+	y1 = flr(y1 or 0) -- + 1 -- y1 = flr(tonumber(y1) or 0) + 1
+	
+
 	local dx = x1 - x0
 	local dy = y1 - y0
 	local stepx, stepy
@@ -882,22 +1056,24 @@ function api.line(x0, y0, x1, y1, col)
 
 	if dx == 0 then
 		-- simple case draw a vertical line
-		points = {}
 		if y0 > y1 then
 			y0, y1 = y1, y0
 		end
-		for y = y0, y1 do
-			table.insert(points, { x0, y })
-		end
+		return love.graphics.line(x0,y0-1,x0,y1)
+		-- points = {}
+		-- for y = y0, y1 do
+		-- 	table.insert(points, { x0, y })
+		-- end
 	elseif dy == 0 then
 		-- simple case draw a horizontal line
-		points = {}
 		if x0 > x1 then
 			x0, x1 = x1, x0
 		end
-		for x = x0, x1 do
-			table.insert(points, { x, y0 })
-		end
+		return love.graphics.line(x0-1,y0,x1,y0)
+		-- points = {}
+		-- for x = x0, x1 do
+		-- 	table.insert(points, { x, y0 })
+		-- end
 	else
 		if dy < 0 then
 			dy = -dy
@@ -922,7 +1098,8 @@ function api.line(x0, y0, x1, y1, col)
 				end
 				x0 = x0 + stepx
 				fraction = fraction + dy
-				table.insert(points, { flr(x0), flr(y0) })
+				-- table.insert(points, { flr(x0), flr(y0) })
+				points[#points+1] = { flr(x0), flr(y0) }
 			end
 		else
 			local fraction = dx - bit.rshift(dy, 1)
@@ -933,7 +1110,8 @@ function api.line(x0, y0, x1, y1, col)
 				end
 				y0 = y0 + stepy
 				fraction = fraction + dx
-				table.insert(points, { flr(x0), flr(y0) })
+				-- table.insert(points, { flr(x0), flr(y0) })
+				points[#points+1] = { flr(x0), flr(y0) }
 			end
 		end
 	end
@@ -1463,47 +1641,48 @@ function api.cstore(dest_addr, source_addr, len) -- luacheck: no unused
 end
 
 function api.rnd(x)
-	if type(x)=="table" then
-		return x[love.math.random(#x)]
-	else
-		return love.math.random() * (tonumber(x) or 1)
-	end
+	-- if type(x)=="table" then
+		-- return x[love.math.random(#x)]
+	-- else
+		return love.math.random() * (x or 1) -- rostok: optimize for speed tonumber(x)
+	-- end
 end
 
 function api.srand(seed)
-	seed=tonumber(seed) or 0
+	seed=seed or 0 -- rostok: optimize for speed tonumber(seed)
 	if seed == 0 then
 		seed = 1
 	end
 	return love.math.setRandomSeed(flr(seed * 0x8000))
 end
 
+api.table = table
 api.flr = math.floor
 api.ceil = math.ceil
 
 function api.sgn(x)
-	x = tonumber(x) or 0
+	x = x or 0 -- rostok: optimize for speed tonumber(x)
 	return x < 0 and -1 or 1
 end
 
 api.abs = math.abs
 
 function api.min(a, b)
-	a = tonumber(a) or 0
-	b = tonumber(b) or 0
+	a = a or 0 -- rostok: optimize for speed tonumber(a)
+	b = b or 0 -- rostok: optimize for speed tonumber(b)
 	return a < b and a or b
 end
 
 function api.max(a, b)
-	a = tonumber(a) or 0
-	b = tonumber(b) or 0
+	a = a or 0 -- rostok: optimize for speed tonumber(a)
+	b = b or 0 -- rostok: optimize for speed tonumber(b)
 	return a > b and a or b
 end
 
 function api.mid(x, y, z)
-	x = tonumber(x) or 0
-	y = tonumber(y) or 0
-	z = tonumber(z) or 0
+	x = x or 0 -- rostok: optimize for speed tonumber(x)
+	y = y or 0 -- rostok: optimize for speed tonumber(y)
+	z = z or 0 -- rostok: optimize for speed tonumber(z)
 	if x > y then
 		x, y = y, x
 	end
@@ -1624,9 +1803,10 @@ function api.run()
 			log("lua completed")
 		end
 	end
-
 	if pico8.cart._init then
+		log("INITIALIZING")
 		pico8.cart._init()
+		log("INITIALIZED")
 	end
 	if pico8.cart._update60 then
 		setfps(60)
@@ -1728,6 +1908,64 @@ function api.radio()
 	return nil, 0
 end
 
+-- returns true is mouse button (1,2,3) was pressed this frame
+function api.mousePressed(b)
+	b = b or 0
+	b = api.shl(1,b-1)
+	return bit.band(pico8.mouseButtonsStatePrev,b)==0 and bit.band(pico8.mouseButtonsState,b)~=0
+end
+
+-- returns true is mouse button (1,2,3) was released this frame
+function api.mouseReleased(b)
+	b = b or 0
+	b = api.shl(1,b-1)
+	return bit.band(pico8.mouseButtonsStatePrev,b)~=0 and bit.band(pico8.mouseButtonsState,b)==0
+end
+
+-- checks if the game window has keyboard focus.
+function api.hasFocus()
+	return love.window.hasFocus()
+end
+
+function api.isDown(...)
+	for i, arg in ipairs({...}) do
+		if arg=="mouse1" or arg=="mouse2" or arg=="mouse3" or arg=="mouse4" or arg=="mouse5" then 
+			if     arg=="mouse1" and love.mouse.isDown(1) then return true 
+			elseif arg=="mouse2" and love.mouse.isDown(2) then return true 
+			elseif arg=="mouse3" and love.mouse.isDown(3) then return true 
+			elseif arg=="mouse4" and love.mouse.isDown(4) then return true 
+			elseif arg=="mouse5" and love.mouse.isDown(5) then return true end
+		elseif pico8.keys[arg] then return true end
+	end
+	return false
+end
+
+function api.isPressed(...)
+	for i, arg in ipairs({...}) do
+	  if arg == "mouse1" or arg == "mouse2" or arg == "mouse3" or arg == "mouse4" or arg == "mouse5" then 
+		if     arg == "mouse1" and api.mousePressed(1) then return true 
+		elseif arg == "mouse2" and api.mousePressed(2) then return true 
+		elseif arg == "mouse3" and api.mousePressed(3) then return true 
+		elseif arg == "mouse4" and api.mousePressed(4) then return true 
+		elseif arg == "mouse5" and api.mousePressed(5) then return true end
+	  elseif pico8.keys[arg] and not pico8.last_keys[arg] then return true end
+	end
+	return false
+end
+
+function api.isReleased(...)
+	for i, arg in ipairs({...}) do
+	  if arg == "mouse1" or arg == "mouse2" or arg == "mouse3" or arg == "mouse4" or arg == "mouse5" then 
+		if     arg == "mouse1" and api.mouseReleased(1) then return true 
+		elseif arg == "mouse2" and api.mouseReleased(2) then return true 
+		elseif arg == "mouse3" and api.mouseReleased(3) then return true 
+		elseif arg == "mouse4" and api.mouseReleased(4) then return true 
+		elseif arg == "mouse5" and api.mouseReleased(5) then return true end
+	  elseif not pico8.keys[arg] and pico8.last_keys[arg] then return true end
+	end
+	return false
+end
+  
 function api.btn(i, p)
 	if i ~= nil or p ~= nil then
 		i = flr(tonumber(i) or 0)
@@ -1755,7 +1993,7 @@ end
 
 
 function api.btnp(i, p)
-	if i~= nil or p~=nil then
+	if i ~= nil or p ~= nil then
 		i = flr(tonumber(i) or 0)
 		p = flr(tonumber(p) or 0)
 		if pico8.keymap[p] and pico8.keymap[p][i] then
@@ -1972,7 +2210,8 @@ function api.add(a, v, index)
 	elseif index == nil then
 		table.insert(a, v)
 	else
-		table.insert(a, tonumber(index), v)
+		-- table.insert(a, tonumber(index), v)
+		table.insert(a, index, v) -- extra tonumber convertsion seems unnecessary
 	end
 	return v
 end
@@ -1990,7 +2229,23 @@ function api.del(a, dv)
 	end
 end
 
-function api.deli(...)
+-- faster api.del() but not maintaining order
+function api.del2(a, dv)
+	if a == nil then
+		warning("del from nil")
+		return
+	end
+	local n = #a
+	for i=1,n do
+		if a[i]==dv then
+			a[i]=a[n]
+			a[n]=nil
+			return dv
+		end
+	end
+end
+
+function api.deliOLD(...)
 	local argc = select("#", ...)
 	local a = select(1, ...)
 	local index = select(2, ...)
@@ -2016,6 +2271,35 @@ function api.deli(...)
 	end
 end
 
+-- optimized deli
+function api.deli(t, index)
+    if type(t) ~= "table" or #t < 1 then
+        return
+    end
+
+    index = index or #t  -- default index to length of table if not provided
+
+    if type(index) ~= "number" then
+        return
+    end
+
+    return table.remove(t, index)
+end
+
+api.select = select
+
+function api.lastofOLD(...) 
+    if select("#",...)==0 then return nil end
+	return select(-1,... or nil)
+end
+
+function api.lastof(...)
+	-- return (({...})[#{...}])
+	local i = select("#",...)
+	if i==0 then return nil end
+	return select(i,...) or {}
+end
+
 function api.serial(channel, address, length) -- luacheck: no unused
 	-- TODO: implement this
 end
@@ -2026,9 +2310,10 @@ function api.split(str, sep, conv_nums)
 	end
 	str = tostring(str)
 	sep=sep or ","
+	str=str..sep
+    if sep == "." then sep = "%." end -- escape the dot character in the pattern
 	conv_nums=(conv_nums==nil) and true or conv_nums
 	local tbl={}
-	str=str..sep
 	for val in string.gmatch(str, '(.-)'..sep) do
 		if conv_nums  and tonumber(val) ~= nil then
 			val=tonumber(val)
@@ -2038,5 +2323,22 @@ function api.split(str, sep, conv_nums)
 	return tbl
 end
 
+function api.writeFile(name, contents)
+    local file = love.filesystem.newFile(name, "w")
+    file:write(contents)
+    file:close()
+end
+
+function api.readFile(filename)
+	if love.filesystem.getInfo(filename) then
+		local file = love.filesystem.newFile(filename, "r")
+		local contents = file:read()
+		file:close()
+		return contents
+	end
+	return nil
+end
+
+api.lognl = io.write
 
 return api
