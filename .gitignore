@@ -6,3 +6,8 @@
 build/*.love
 luacov.report.out
 luacov.stats.out
+trash
+schifahren.7z
+appdata-roaming-love/*
+release/*
+purelove/*
