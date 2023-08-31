@@ -7,7 +7,7 @@ local debugserver = nil
 -- local debugserver = require("debugserver")
 -- debugserver.startServer(1234) -- Replace with your desired port number
 
-print("picolove hello");
+print("picolove hello @ ".._VERSION);
 require("strict")
 local QueueableSource = require("QueueableSource")
 
@@ -758,7 +758,7 @@ function flip_screen()
 
 	if gif_canvas then
 		love.graphics.setCanvas(gif_canvas)
-		love.graphics.draw(pico8.screen, 0, 0, 0, 2, 2)
+		love.graphics.draw(pico8.screen, 0, 0, 0) -- no scaling ..., 2, 2
 		love.graphics.setCanvas()
 		gif_recording:frame(gif_canvas:newImageData())
 	end
@@ -1065,7 +1065,7 @@ function love.keypressed(key)
 			if not gif_recording then
 				log('failed to start recording: '..err)
 			else
-				gif_canvas=love.graphics.newCanvas(pico8.resolution[1]*2, pico8.resolution[2]*2)
+				gif_canvas=love.graphics.newCanvas(pico8.resolution[1], pico8.resolution[2])
 				log('starting record ...')
 			end
 		else
