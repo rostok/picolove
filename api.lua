@@ -2,6 +2,7 @@ local api = {}
 
 local flr = math.floor
 api.math = math
+api.love = love
 api.bit = bit
 api.debug = debug
 api.os = os
@@ -77,6 +78,12 @@ function api._picolove()
 		pico8=pico8,
 		load=function (code) local f = load(code) setfenv(f,pico8.cart) return f() end
 	}
+end
+
+function api.__picolove_resize_canvas(w,h)
+	pico8.screen = love.graphics.newCanvas(w,h)
+	pico8.resolution[1] = w
+	pico8.resolution[2] = h
 end
 
 function api._picolove_end()
@@ -1119,6 +1126,123 @@ function api.line(x0, y0, x1, y1, col)
 end
 
 
+function api.lineORG(x0, y0, x1, y1, col)
+	if col then
+		color(col)
+	end
+
+	if not x0 then -- Invalidates the current endpoint.
+    	pico8.line_endpoint_x = nil
+	    pico8.line_endpoint_y = nil
+	    return
+	end
+	if not y0 then -- Invalidates the current endpoint. Remembers color as the current pen color.
+    	pico8.line_endpoint_x = nil
+	    pico8.line_endpoint_y = nil
+	    if x0 ~= pico8.color then color(x0) end -- rostok: skip color if same
+	    return
+	end
+	if not x1 then -- Draws a line from the current endpoint to (x1, y1) in the current pen color. If there is no current endpoint, nothing is drawn. Remembers (x1, y1) as the current endpoint.
+	    if pico8.line_endpoint_x then
+		    x0,y0,x1,y1=pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0
+		else
+			pico8.line_endpoint_x = x0
+			pico8.line_endpoint_y = y0
+			return
+		end
+	elseif not y1 then -- Draws a line from the current endpoint to (x1, y1) in the given color. If there is no current endpoint, nothing is drawn. Remembers (x1, y1) as the current endpoint and color as the current pen color.
+	    if pico8.line_endpoint_x then
+		    x0,y0,x1,y1,col=pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0,x1
+		else
+			pico8.line_endpoint_x = x0
+			pico8.line_endpoint_y = y0
+			if x1 ~= pico8.color then color(x1) end -- rostok: skip color if same
+			return
+		end
+	end
+
+	if col and col ~= pico8.color then color(col) end -- rostok: skip color if same
+
+	pico8.line_endpoint_x = x1
+	pico8.line_endpoint_y = y1
+
+	x0 = flr(x0) -- + 1
+	y0 = flr(y0) -- + 1
+	x1 = flr(x1) -- + 1
+	y1 = flr(y1) -- + 1
+
+	local dx = x1 - x0
+	local dy = y1 - y0
+	local stepx, stepy
+
+	local points = { { x0, y0 } }
+
+	if dx == 0 then
+		-- simple case draw a vertical line
+		points = {}
+		if y0 > y1 then
+			y0, y1 = y1, y0
+		end
+		for y = y0, y1 do
+			table.insert(points, { x0, y })
+		end
+	elseif dy == 0 then
+		-- simple case draw a horizontal line
+		points = {}
+		if x0 > x1 then
+			x0, x1 = x1, x0
+		end
+		for x = x0, x1 do
+			table.insert(points, { x, y0 })
+		end
+	else
+		if dy < 0 then
+			dy = -dy
+			stepy = -1
+		else
+			stepy = 1
+		end
+
+		if dx < 0 then
+			dx = -dx
+			stepx = -1
+		else
+			stepx = 1
+		end
+
+		if dx > dy then
+			local fraction = dy - bit.rshift(dx, 1)
+			while x0 ~= x1 do
+				if fraction >= 0 then
+					y0 = y0 + stepy
+					fraction = fraction - dx
+				end
+				x0 = x0 + stepx
+				fraction = fraction + dy
+				table.insert(points, { flr(x0), flr(y0) })
+			end
+		else
+			local fraction = dx - bit.rshift(dy, 1)
+			while y0 ~= y1 do
+				if fraction >= 0 then
+					x0 = x0 + stepx
+					fraction = fraction - dy
+				end
+				y0 = y0 + stepy
+				fraction = fraction + dx
+				table.insert(points, { flr(x0), flr(y0) })
+			end
+		end
+	end
+	love.graphics.points(points)
+end
+
+-- api.line = api.lineORG
+
+function api.polygon(...)
+	love.graphics.polygon("fill",...)
+end
+
 function api.pal(c0, c1, p)
 	-- GTODO: 0 vs 1 indexing
 	-- GTODO: support other variants of this func
@@ -1757,7 +1881,7 @@ function api.run()
 	if not cartname then
 		return
 	end
-
+	
 	love.graphics.setCanvas(pico8.screen)
 	love.graphics.setShader(pico8.draw_shader)
 	restore_clip()
@@ -1938,6 +2062,11 @@ function api.isDown(...)
 		elseif pico8.keys[arg] then return true end
 	end
 	return false
+end
+
+-- clears pressed key state
+function api.unpress(...)
+	for i, arg in ipairs({...}) do pico8.keys[arg]=false end
 end
 
 function api.isPressed(...)
@@ -2286,14 +2415,22 @@ function api.deli(t, index)
     return table.remove(t, index)
 end
 
-api.select = select
-
-function api.lastofOLD(...) 
-    if select("#",...)==0 then return nil end
-	return select(-1,... or nil)
+-- fast but not maintaining order, returns nothing
+function api.deli2(t, index)
+	local size = #t
+	if #t==0 or index>#t then return end
+	t[index]=t[size]
+	t[size]=nil
 end
 
-function api.lastof(...)
+api.select = select
+
+function api.lastof(...) 
+    if select("#",...)==0 then return nil end
+	return select(-1,...)
+end
+
+function api.lastofNEW(...)
 	-- return (({...})[#{...}])
 	local i = select("#",...)
 	if i==0 then return nil end
