@@ -244,6 +244,7 @@ function _loadCART(_cartname)
 	end
 
 	if not file_found then
+		log("could not load, file not found",_cartname,"currdir",currentDirectory,"workingdir",love.filesystem.getWorkingDirectory())
 		api.print("could not load", 6)
 		return false
 	end
@@ -600,11 +601,10 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 			argpos = argpos + paramcount + 1
 		end
 	end
-
 	if initialcartname == nil or initialcartname == "" then
 		initialcartname = __pico_cart or "nocart.p8"
 	end
-
+	
 	loadWindowState()
 
 	_load(initialcartname)
