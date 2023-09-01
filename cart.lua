@@ -459,9 +459,9 @@ function cart.load_p8(filename)
 		end
 	end
 
-	--api.writeFile("_code.lua",lua);
-	lua = patch_lua(lua)
-	--api.writeFile("_code_patched.lua",lua);
+	-- api.writeFile("_code.lua",lua);
+	lua = patch_lua(lua,true) -- on some systems patchig may be slow, but it is not needed if syntax is not of pico8 dialect, but required for ░ handling
+	-- api.writeFile("_code_patched.lua",lua);
 	lua = lua .. "\n_picolove_end()"
 
 	log("finished loading cart", filename)
@@ -471,7 +471,7 @@ function cart.load_p8(filename)
 	return true
 end
 
-function patch_lua(lua)
+function patch_lua(lua, onlyglyphs)
 	--replace glyphs with respective ascii chars
 
 	-- very carefully replace these glyphs with the respective ascii chars
@@ -501,6 +501,7 @@ function patch_lua(lua)
 		i=i+1
 	end
 
+	if onlyglyphs then return lua end
 
 	-- not strictly required, but should help improve performance
 	lua = "local _ENV = _ENV " .. lua
