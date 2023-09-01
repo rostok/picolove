@@ -22,7 +22,36 @@ local gif={}
 function gif:frame(data)
 	self.file:write("\33\249\4\4\3\0\0\0")
 	local last=self.last
-	local x0, y0, x1, y1=0, 0, pico8.resolution[1]-1, pico8.resolution[2]-1 -- no x2 scaling
+	local W,H = pico8.resolution[1]-1, pico8.resolution[2]-1
+	local x0, y0, x1, y1=0, 0, W, H -- no x2 scaling
+
+	if self.first or not last then
+		x0, y0, x1, y1=0, 0, W, H
+		self.first=nil
+	else
+		-- local t = love.timer.getTime()
+		--get bounding box for changes
+		x0, y0, x1, y1=W, H, 0, 0
+		local changed = false
+		for y=0, H do
+			for x=0, W do
+				local r1, g1, b1=last:getPixel(x, y)
+				local r2, g2, b2=data:getPixel(x, y)
+				if r1~=r2 or g1~=g2 or b1~=b2 then
+					y0=math.min(y0, y)
+					x0=math.min(x0, x)
+					y1=math.max(y1, y)
+					x1=math.max(x1, x)
+					changed=true
+				end
+			end
+		end
+		if not changed then
+			-- TODO: Output longer delay instead of bogus frame
+			x0, y0, x1, y1=0, 0, 0, 0
+		end
+		-- print("bbox " .. love.timer.getTime() -t)
+	end
 
 	self.file:write("\44"..num2str(x0)..num2str(y0)..num2str(x1-x0+1)..num2str(y1-y0+1).."\0\5")
 	local trie={}
