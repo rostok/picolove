@@ -1,5 +1,24 @@
 local api = {}
 
+-- why screen starts from 1,1 and not 0,0 ?
+-- using love's love.graphics.point and points without flr() on coord results with problem described on https://love2d.org/wiki/love.graphics
+-- one can then adjust this with love.graphics.translate which is located in main.lua:restore_camera()
+-- but as points start appearing at right positions (still not exactly pico8 style as pico8 floors coordinates)
+-- there still is problem with love.graphics.line which for some reason behaves very strange
+-- first there is a problem with 1px line 
+-- then problem with horizontal or vertival lines
+-- various tests with line0 line1 line2 line3 line4, translating px in restore_camera() failed
+-- line0 is almost close to original
+-- line2 is based on love.graphics.line and is faster
+
+-- possible approach to fix this:
+-- use test-gfx.p8 and see how functions behave for s float parameter adjusting coordinates from .1 to 1
+-- make restore_camera() use translate with +.5 +.5 this should make pset() use love.graphics.point() to be OK
+-- then make line4 align itself with pset()
+-- make special case for 1px line
+-- check horizontal lines
+-- adjust remaining graphics functions like rect rectfill circ circfill oval ovalfill
+
 local flr = math.floor
 api.math = math
 api.love = love
@@ -71,7 +90,7 @@ end
 -- generic object to expose various api
 function api._picolove()
 	return {
-		__profilingS=__profilingS,
+		__profiling=__profiling,
 		profile=profile,
 		_G=_G,
 		timer=love.timer,
@@ -445,12 +464,11 @@ end
 function api.pset(x, y, col)
 	if col and col ~= pico8.color then color(col) end -- rostok: skip color if same
 	love.graphics.points(flr(x), flr(y))
+	-- love.graphics.points(x, y) -- stick to love coords
 end
 
 function api.psets(col,...)
-	if col then
-		color(col)
-	end
+	if col then color(col) end
 	love.graphics.points(...)
 end
 
@@ -778,7 +796,7 @@ function api.sspr(sx, sy, sw, sh, dx, dy, dw, dh, flip_x, flip_y)
 	love.graphics.setShader(pico8.draw_shader)
 end
 
-function api.rect(x0, y0, x1, y1, col)
+function api.rect0(x0, y0, x1, y1, col)
 	-- GTODO: x0=x1
 	if col then color(col) end
 	
@@ -813,7 +831,25 @@ function api.rect(x0, y0, x1, y1, col)
 	-- )
 end
 
-function api.rectfill(x0, y0, x1, y1, col)
+-- no flr()
+function api.rect1(x0, y0, x1, y1, col)
+	if col then color(col) end
+	
+	if x0==x1 and y0==y1 then return love.graphics.points(x0,y0) end
+	if x0==x1 or y0==y1 then return love.graphics.line(x0,y0,x1,y1) end
+
+	love.graphics.rectangle(
+		"line",
+		x0,
+		y0,
+		x1 - x0,
+		y1 - y0
+	)
+end
+
+api.rect = api.rect0
+
+function api.rectfill0(x0, y0, x1, y1, col)
 	if col then color(col) end
 	if x1 < x0 then
 		x0, x1 = x1, x0
@@ -836,6 +872,25 @@ function api.rectfill(x0, y0, x1, y1, col)
 		flr(y1 - y0)+1
 	)
 end
+
+function api.rectfill1(x0, y0, x1, y1, col)
+	if col then color(col) end
+	if x1 < x0 then
+		x0, x1 = x1, x0
+	end
+	if y1 < y0 then
+		y0, y1 = y1, y0
+	end
+	love.graphics.rectangle(
+		"fill",
+		(x0)-1,
+		(y0)-1,
+		(x1 - x0)+1,
+		(y1 - y0)+1
+	)
+end
+
+api.rectfill = api.rectfill0
 
 function api.circ2(ox, oy, r, col)
 	if col then
@@ -955,7 +1010,12 @@ function api.ovalfill(x0, y0, x1, y1, col)
 	love.graphics.ellipse("fill",x,y,rx,ry)
 end
 
-function api.line2(x0, y0, x1, y1, col)
+-- the original line picolove implementation but with variable parameter coords
+function api.line0(x0, y0, x1, y1, col)
+	if col then
+		color(col)
+	end
+
 	if not x0 then -- Invalidates the current endpoint.
     	pico8.line_endpoint_x = nil
 	    pico8.line_endpoint_y = nil
@@ -990,26 +1050,80 @@ function api.line2(x0, y0, x1, y1, col)
 
 	pico8.line_endpoint_x = x1
 	pico8.line_endpoint_y = y1
-	
-	-- x0 = flr(x0 or 0) + 1 -- x0 = flr(tonumber(x0) or 0) + 1
-	-- y0 = flr(y0 or 0) + 1 -- y0 = flr(tonumber(y0) or 0) + 1
-	-- x1 = flr(x1 or 0) + 1 -- x1 = flr(tonumber(x1) or 0) + 1
-	-- y1 = flr(y1 or 0) + 1 -- y1 = flr(tonumber(y1) or 0) + 1
-	if x0<=x1 then
-		x0,x1=flr(x0-.5),math.ceil(x1)
+
+	x0 = flr(x0) -- + 1
+	y0 = flr(y0) -- + 1
+	x1 = flr(x1) -- + 1
+	y1 = flr(y1) -- + 1
+
+	local dx = x1 - x0
+	local dy = y1 - y0
+	local stepx, stepy
+
+	local points = { { x0, y0 } }
+
+	if dx == 0 then
+		-- simple case draw a vertical line
+		points = {}
+		if y0 > y1 then
+			y0, y1 = y1, y0
+		end
+		for y = y0, y1 do
+			table.insert(points, { x0, y })
+		end
+	elseif dy == 0 then
+		-- simple case draw a horizontal line
+		points = {}
+		if x0 > x1 then
+			x0, x1 = x1, x0
+		end
+		for x = x0, x1 do
+			table.insert(points, { x, y0 })
+		end
 	else
-		x0,x1=math.ceil(x0),flr(x1-.5)
+		if dy < 0 then
+			dy = -dy
+			stepy = -1
+		else
+			stepy = 1
+		end
+
+		if dx < 0 then
+			dx = -dx
+			stepx = -1
+		else
+			stepx = 1
+		end
+
+		if dx > dy then
+			local fraction = dy - bit.rshift(dx, 1)
+			while x0 ~= x1 do
+				if fraction >= 0 then
+					y0 = y0 + stepy
+					fraction = fraction - dx
+				end
+				x0 = x0 + stepx
+				fraction = fraction + dy
+				table.insert(points, { flr(x0), flr(y0) })
+			end
+		else
+			local fraction = dx - bit.rshift(dy, 1)
+			while y0 ~= y1 do
+				if fraction >= 0 then
+					x0 = x0 + stepx
+					fraction = fraction - dy
+				end
+				y0 = y0 + stepy
+				fraction = fraction + dx
+				table.insert(points, { flr(x0), flr(y0) })
+			end
+		end
 	end
-	if y0<=y1 then
-		y0,y1=flr(y0-.5),math.ceil(y1)
-	else
-		y0,y1=math.ceil(y0),flr(y1-.5)
-	end
-	
-	return love.graphics.line(x0,y0,x1,y1)
+	love.graphics.points(points)
 end
 
-function api.line(x0, y0, x1, y1, col)
+-- hybrid approach with hor/vertical lines being drawn by love.graphics.line
+function api.line1(x0, y0, x1, y1, col)
 	if not x0 then -- Invalidates the current endpoint.
     	pico8.line_endpoint_x = nil
 	    pico8.line_endpoint_y = nil
@@ -1125,8 +1239,154 @@ function api.line(x0, y0, x1, y1, col)
 	love.graphics.points(points)
 end
 
+-- love.graphics.line but with flr() to coordinates
+function api.line2(x0, y0, x1, y1, col)
+	if not x0 then -- Invalidates the current endpoint.
+    	pico8.line_endpoint_x = nil
+	    pico8.line_endpoint_y = nil
+	    return
+	end
+	if not y0 then -- Invalidates the current endpoint. Remembers color as the current pen color.
+    	pico8.line_endpoint_x = nil
+	    pico8.line_endpoint_y = nil
+	    if x0 ~= pico8.color then color(x0) end -- rostok: skip color if same
+	    return
+	end
+	if not x1 then -- Draws a line from the current endpoint to (x1, y1) in the current pen color. If there is no current endpoint, nothing is drawn. Remembers (x1, y1) as the current endpoint.
+	    if pico8.line_endpoint_x then
+		    x0,y0,x1,y1=pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0
+		else
+			pico8.line_endpoint_x = x0
+			pico8.line_endpoint_y = y0
+			return
+		end
+	elseif not y1 then -- Draws a line from the current endpoint to (x1, y1) in the given color. If there is no current endpoint, nothing is drawn. Remembers (x1, y1) as the current endpoint and color as the current pen color.
+	    if pico8.line_endpoint_x then
+		    x0,y0,x1,y1,col=pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0,x1
+		else
+			pico8.line_endpoint_x = x0
+			pico8.line_endpoint_y = y0
+			if x1 ~= pico8.color then color(x1) end -- rostok: skip color if same
+			return
+		end
+	end
 
-function api.lineORG(x0, y0, x1, y1, col)
+	if col and col ~= pico8.color then color(col) end -- rostok: skip color if same
+
+	pico8.line_endpoint_x = x1
+	pico8.line_endpoint_y = y1
+	
+	-- x0 = flr(x0 or 0) + 1 -- x0 = flr(tonumber(x0) or 0) + 1
+	-- y0 = flr(y0 or 0) + 1 -- y0 = flr(tonumber(y0) or 0) + 1
+	-- x1 = flr(x1 or 0) + 1 -- x1 = flr(tonumber(x1) or 0) + 1
+	-- y1 = flr(y1 or 0) + 1 -- y1 = flr(tonumber(y1) or 0) + 1
+	if x0<=x1 then
+		x0,x1=flr(x0-.5),math.ceil(x1)
+	else
+		x0,x1=math.ceil(x0),flr(x1-.5)
+	end
+	if y0<=y1 then
+		y0,y1=flr(y0-.5),math.ceil(y1)
+	else
+		y0,y1=math.ceil(y0),flr(y1-.5)
+	end
+	
+	return love.graphics.line(x0,y0,x1,y1)
+end
+
+-- full love.graphics.line
+function api.line3(x0, y0, x1, y1, col)
+	if not x0 then -- Invalidates the current endpoint.
+    	pico8.line_endpoint_x = nil
+	    pico8.line_endpoint_y = nil
+	    return
+	end
+	if not y0 then -- Invalidates the current endpoint. Remembers color as the current pen color.
+    	pico8.line_endpoint_x = nil
+	    pico8.line_endpoint_y = nil
+	    if x0 ~= pico8.color then color(x0) end -- rostok: skip color if same
+	    return
+	end
+	if not x1 then -- Draws a line from the current endpoint to (x1, y1) in the current pen color. If there is no current endpoint, nothing is drawn. Remembers (x1, y1) as the current endpoint.
+	    if pico8.line_endpoint_x then
+		    x0,y0,x1,y1=pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0
+		else
+			pico8.line_endpoint_x = x0
+			pico8.line_endpoint_y = y0
+			return
+		end
+	elseif not y1 then -- Draws a line from the current endpoint to (x1, y1) in the given color. If there is no current endpoint, nothing is drawn. Remembers (x1, y1) as the current endpoint and color as the current pen color.
+	    if pico8.line_endpoint_x then
+		    x0,y0,x1,y1,col=pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0,x1
+		else
+			pico8.line_endpoint_x = x0
+			pico8.line_endpoint_y = y0
+			if x1 ~= pico8.color then color(x1) end -- rostok: skip color if same
+			return
+		end
+	end
+
+	if col and col ~= pico8.color then color(col) end -- rostok: skip color if same
+
+	pico8.line_endpoint_x = x1
+	pico8.line_endpoint_y = y1
+	
+	-- if x0<=x1 then
+	-- 	x0,x1=flr(x0-.5),math.ceil(x1)
+	-- else
+	-- 	x0,x1=math.ceil(x0),flr(x1-.5)
+	-- end
+	-- if y0<=y1 then
+	-- 	y0,y1=flr(y0-.5),math.ceil(y1)
+	-- else
+	-- 	y0,y1=math.ceil(y0),flr(y1-.5)
+	-- end
+
+	-- local D=-.5
+	-- local A=1
+	-- if flr(x0+D)==flr(x1+D) then
+	-- 	if x0<=x1 then
+	-- 		x0,x1 = x0,x1+A
+	-- 	else
+	-- 		x0,x1 = x0+A,x1
+	-- 	end
+	-- end
+	-- if flr(y0+D)==flr(y1+D) then
+	-- 	if y0<=y1 then
+	-- 		y0,y1 = y0,y1+A
+	-- 	else
+	-- 		y0,y1 = y0+A,y1
+	-- 	end
+	-- end
+
+	local D=0
+	local A=0
+	if flr(x1+D)<=flr(x0+D) then x0=x0+A else x1=x1+A end
+	if flr(y1+D)<=flr(y0+D) then y0=y0+A else y1=y1+A end
+
+	-- local D=0
+	-- local A=.5
+	-- if flr(x0+D)==flr(x1+D) then
+	-- 	if y0<=y1 then
+	-- 		y0,y1 = y0,y1+A
+	-- 	else
+	-- 		y0,y1 = y0+A,y1
+	-- 	end
+	-- end
+	-- if flr(y0+D)==flr(y1+D) then
+	-- 	if x0<=x1 then
+	-- 		x0,x1 = x0,x1+A
+	-- 	else
+	-- 		x0,x1 = x0+A,x1
+	-- 	end
+	-- end
+
+	local B=0.5
+	return love.graphics.line(x0+B,y0+B,x1+B,y1+B)
+end
+
+-- the original line picolove implementation but with variable parameter coords and no flr()
+function api.line4(x0, y0, x1, y1, col)
 	if col then
 		color(col)
 	end
@@ -1219,7 +1479,7 @@ function api.lineORG(x0, y0, x1, y1, col)
 				end
 				x0 = x0 + stepx
 				fraction = fraction + dy
-				table.insert(points, { flr(x0), flr(y0) })
+				table.insert(points, { x0, y0 })
 			end
 		else
 			local fraction = dx - bit.rshift(dy, 1)
@@ -1230,14 +1490,14 @@ function api.lineORG(x0, y0, x1, y1, col)
 				end
 				y0 = y0 + stepy
 				fraction = fraction + dx
-				table.insert(points, { flr(x0), flr(y0) })
+				table.insert(points, { x0, y0 })
 			end
 		end
 	end
 	love.graphics.points(points)
 end
 
--- api.line = api.lineORG
+api.line = api.line0
 
 function api.polygon(...)
 	love.graphics.polygon("fill",...)
@@ -1881,7 +2141,6 @@ function api.run()
 	if not cartname then
 		return
 	end
-	
 	love.graphics.setCanvas(pico8.screen)
 	love.graphics.setShader(pico8.draw_shader)
 	restore_clip()
@@ -2431,7 +2690,7 @@ function api.lastof(...)
 end
 
 function api.lastofNEW(...)
-	-- return (({...})[#{...}])
+	-- return (({...})[#{...}]) -- this is slower thatn select("#",...)
 	local i = select("#",...)
 	if i==0 then return nil end
 	return select(i,...) or {}
@@ -2441,6 +2700,7 @@ function api.serial(channel, address, length) -- luacheck: no unused
 	-- TODO: implement this
 end
 
+-- split string into table, default separator is comma
 function api.split(str, sep, conv_nums)
 	if type(str) ~= "string" and type(str) ~= "number" then
 		return nil

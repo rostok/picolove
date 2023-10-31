@@ -498,7 +498,6 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 	api.camera()
 	api.pal()
 	api.color(6)
-
 	local argc = #argv
 	local argpos = 1
 	local paramcount = 0
@@ -606,7 +605,6 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 	end
 	
 	loadWindowState()
-
 	_load(initialcartname)
 	api.run()
 end
@@ -670,17 +668,17 @@ function love.update(_)
 	pico8.frames=pico8.frames+1
 	update_buttons()
 
-	if __profilingU>0 then profile.start() end
+	if __profiling.U>0 then profile.start() end
 	if pico8.cart._update60 then
 		pico8.cart._update60()
 	elseif pico8.cart._update then
 		pico8.cart._update()
 	end
-	if __profilingU>0 then profile.stop() end
+	if __profiling.U>0 then profile.stop() end
 	
-	__profilingU = profileReport(__profilingU, "profileU.txt", 30)
-	__profilingS = profileReport(__profilingS, "profileS.txt", 30)
-	__profilingD = profileReport(__profilingD, "profileD.txt", 30)
+	__profiling.U = profileReport(__profiling.U, "profileU.txt", 30)
+	__profiling.S = profileReport(__profiling.S, "profileS.txt", 30)
+	__profiling.D = profileReport(__profiling.D, "profileD.txt", 30)
 
 	-- copy current frame keys to last frame keys, this must be AFTER update function
 	pico8.last_keys = {}
@@ -696,12 +694,12 @@ function love.draw()
 
 	love.graphics.setShader(pico8.draw_shader)
 
-	if __profilingD>0 then profile.start() end
+	if __profiling.D>0 then profile.start() end
 	-- run the cart's draw function
 	if pico8.cart._draw then
 		pico8.cart._draw()
 	end
-	if __profilingD>0 then profile.stop() end
+	if __profiling.D>0 then profile.stop() end
 
 	-- draw the contents of pico screen to our screen
 	flip_screen()
@@ -710,6 +708,12 @@ end
 function restore_camera()
 	love.graphics.origin()
 	love.graphics.translate(-pico8.camera_x, -pico8.camera_y)
+	-- love.graphics.translate(-pico8.camera_x+.5, -pico8.camera_y+.5)
+	-- why +0.5 +0.5 ?
+	-- https://love2d.org/wiki/love.graphics.translate
+	-- It is worth noting that the location (0, 0) aligns with the upper-left corner of the pixel as well, meaning that for some functions 
+	-- you may encounter off-by-one problems in the render output when drawing 1 pixel wide lines. You can try aligning the coordinate system 
+	-- with the center of pixels rather than their upper-left corner. Do this by passing x+0.5 and y+0.5 or using love.graphics.translate().
 end
 
 function flip_screen()
@@ -990,24 +994,24 @@ function love.keypressed(key)
 	elseif key == "f7" and not isCtrlOrGuiDown() and not isAltDown() then
 	    loadWindowState()
 	elseif key == "f9" and not isCtrlOrGuiDown() and not isAltDown() then
-		if __profilingU<0 then 
+		if __profiling.U<0 then 
 			log('PROFILING UPDATE...')
-			__profilingU = __profilingFrames 
+			__profiling.U = __profiling.frames 
 		end
 	elseif key == "f9" and     isCtrlOrGuiDown() and not isAltDown() then
-		if __profilingD<0 then 
+		if __profiling.D<0 then 
 			log('PROFILING DRAW...')
-			__profilingD = __profilingFrames
+			__profiling.D = __profiling.frames
 		end
 	elseif key == "f9" and not isCtrlOrGuiDown() and     isAltDown() then
-		if __profilingS<0 then 
+		if __profiling.S<0 then 
 			log('PROFILING SPECIAL...')
-			__profilingS = __profilingFrames
+			__profiling.S = __profiling.frames
 		end
 
 	-- elseif key == "f10" then
-	-- 	if __profiling then 
-	-- 		__profiling = false
+	-- 	if __profiling. then 
+	-- 		__profiling. = false
 	-- 		local report = profile.report(25)
 	-- 		log(report)
 	-- 		profile.reset()
@@ -1018,7 +1022,7 @@ function love.keypressed(key)
 		
 	-- 		log("PROFILING ENDS")
 	-- 	else
-	-- 		__profiling = true
+	-- 		__profiling. = true
 	-- 		log("PROFILING STARTS")
 	-- 	end
 	elseif key == "f5" then
@@ -1048,7 +1052,7 @@ function love.keypressed(key)
 		love.event.quit()
 	elseif key == "v" and isCtrlOrGuiDown() and not isAltDown() then
 		pico8.clipboard = love.system.getClipboardText()
-	elseif pico8.can_pause and (key == "pause" or key == "p") then
+	elseif pico8.can_pause and (key == "pause") then --  or key == "p" -- i will need this key for typing
 		paused = not paused
 	elseif key == "f1" then
 		-- screenshot
@@ -1356,7 +1360,8 @@ function love.errorhandler(msg)
 	local function draw()
 		if not love.graphics.isActive() then return end
 		local pos = 32
-		love.graphics.clear(89/255, 157/255, 220/255)
+		love.graphics.clear(89/255, 157/255, 220/255) -- blueish
+		love.graphics.clear(0.3,0.1,0.1) -- blueish
 		love.graphics.printf(p, pos, pos, love.graphics.getWidth() - pos)
 		love.graphics.present()
 	end
@@ -1420,6 +1425,9 @@ end
 -- decreases counter and returns its value
 function profileReport(counter, filename, depth)
 	if counter == 0 then
+		local json = profile.tracingJSON()
+		local html = profile.flameHTML(filename:gsub(".txt",".js"))
+		local js   = profile.flameJS()
 		local report = profile.report(depth or 30)
 		-- report = add_code_to_traceback(report," %1 ")
 		report = add_code_to_traceback(report," %1")
@@ -1427,10 +1435,15 @@ function profileReport(counter, filename, depth)
 		log(report)
 		profile.reset()
 		api.writeFile(filename, report)
+		api.writeFile(filename:gsub(".txt",".json"), json)
+		api.writeFile(filename:gsub(".txt",".js"), js)
+		api.writeFile(filename:gsub(".txt",".html"), html)
 
 		-- set tab separated clipboard
 		log("clipboard set")
 		love.system.setClipboardText( (report.."\n"):gsub('[^\n]*%+%-[^\n]*\n', ''):gsub('|', '\t') )
+
+
 	end
 	return counter - 1
 end
@@ -1499,7 +1512,8 @@ function loadWindowState()
         flags.minheight = flags.minheight or 270
         --log("window state", x, y, width, height, flags.display, state.display)
         love.graphics.setCanvas()
+		flags.x,flags.y = x,y
         window.setMode(width, height, flags)
-        window.setPosition(x, y, flags.display)
+		love.graphics.present()
     end
 end

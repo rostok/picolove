@@ -50,7 +50,7 @@ function _init()
 end
 
 function _update()
-	tc += 1
+	tc = tc + 1
 end
 
 function _keydown(key)
@@ -58,7 +58,7 @@ function _keydown(key)
 		-- delete carret
 		rectfill((#linebuffer + 2) * 4, _getcursory(), (#linebuffer + 2) * 4 + 3, _getcursory() + 4, 0)
 
-		cursorx -= 1
+		cursorx = cursorx - 1
 		local delchars = 1
 		if cursorx < 0 then
 			cursorx = 0
@@ -84,13 +84,13 @@ function _keydown(key)
 		cursorx = #linebuffer
 
 	elseif key == "left" then
-		cursorx -= 1
+		cursorx = cursorx - 1
 		if cursorx < 0 then
 			cursorx = 0
 		end
 
 	elseif key == "right" then
-		cursorx += 1
+		cursorx = cursorx + 1
 		if cursorx > #linebuffer then
 			cursorx = #linebuffer
 		end
@@ -103,7 +103,7 @@ function _keydown(key)
 			commandbuffer = linebuffer
 		end
 
-		commandindex -= 1
+		commandindex = commandindex - 1
 		if commandindex < 1 then
 			commandindex = 1
 		end
@@ -120,7 +120,7 @@ function _keydown(key)
 		end
 
 		local newbuffer
-		commandindex += 1
+		commandindex = commandindex + 1
 		if commandindex >= #commandhistory + 1 then
 			commandindex = #commandhistory + 1
 			newbuffer = commandbuffer
@@ -165,7 +165,7 @@ function _keydown(key)
 
 	elseif key == "return" or key == "kpenter" then
 		-- add to history
-		if linebuffer != commandhistory[#commandhistory] then
+		if linebuffer ~= commandhistory[#commandhistory] then
 			add(commandhistory, linebuffer)
 		end
 		commandindex = #commandhistory + 1
@@ -257,7 +257,7 @@ function _textinput(text)
 	linebuffer = startbuffer .. text .. endbuffer
 
 	if #text then
-		cursorx += #text
+		cursorx = cursorx + #text
 	end
 end
 

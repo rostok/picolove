@@ -44,7 +44,7 @@ function updatemode()
 end
 
 function _update()
-	tc += 1
+	tc = tc + 1
 end
 
 function returntomain()
@@ -127,24 +127,24 @@ function normalmode._keydown(key)
 		prevkey = key
 	elseif key == "h" then
 		if caretx == 1 and carety > 1 then
-			carety -= 1
+			carety = carety - 1
 			caretx = #content[carety]
 		else
-			caretx -= 1
+			caretx = caretx - 1
 		end
 		updatecaret()
 	elseif key == "j" then
-		carety += 1
+		carety = carety + 1
 		updatecaret()
 	elseif key == "k" then
-		carety -= 1
+		carety = carety - 1
 		updatecaret()
 	elseif key == "l" then
 		if caretx == #content[carety] and carety < #content then
-			carety += 1
+			carety = carety + 1
 			caretx = 1
 		else
-			caretx += 1
+			caretx = caretx + 1
 		end
 		updatecaret()
 	elseif key == "d" then
@@ -154,7 +154,7 @@ function normalmode._keydown(key)
 		if pos ~= nil then
 			caretx = posend
 		elseif carety < #content then
-			carety += 1
+			carety = carety + 1
 			caretx = 1
 		else
 			caretx = #content[carety]
@@ -165,7 +165,7 @@ function normalmode._keydown(key)
 		if pos ~= nil then
 			caretx = pos
 		elseif caretx >= #content[carety] and carety < #content then
-			carety += 1
+			carety = carety + 1
 			caretx = 1
 		else
 			caretx = #content[carety]
@@ -173,7 +173,7 @@ function normalmode._keydown(key)
 		updatecaret()
 	elseif key == "b" then
 		if caretx == 1 and carety > 1 then
-			carety -= 1
+			carety = carety - 1
 			caretx = #content[carety]
 		end
 		local pos, posend = content[carety]:reverse():find("%S ", #content[carety] - caretx + 2)
@@ -189,7 +189,7 @@ function normalmode._keydown(key)
 		if isshiftdown then
 			caretx = #content[carety] + 1
 		else
-			caretx += 1
+			caretx = caretx + 1
 		end
 		setmode(inputmode)
 		updatecaret()
@@ -202,7 +202,7 @@ function normalmode._keydown(key)
 		prevkey = key
 	elseif key == "o" then
 		if not isshiftdown then
-			carety += 1
+			carety = carety + 1
 		end
 		add(content, "", carety)
 		setmode(inputmode)
@@ -256,19 +256,19 @@ end
 
 function inputmode._keydown(key)
 	if key == "escape" or (isctrldown and key == "c") then
-		caretx -= 1
+		caretx = caretx - 1
 		setmode(normalmode)
 		updatecaret()
 	elseif key == "backspace" then
 		if caretx > 1 then
 			content[carety] = content[carety]:sub(1, caretx - 2) .. content[carety]:sub(caretx)
-			caretx -= 1
+			caretx = caretx - 1
 			updatecaret()
 		end
 	elseif key == "return" then
 		add(content, content[carety]:sub(caretx), carety + 1)
 		content[carety] = content[carety]:sub(1, caretx - 1)
-		carety += 1
+		carety = carety + 1
 		caretx = 1
 		updatecaret()
 	end
@@ -277,7 +277,7 @@ function inputmode._keyup(key)
 end
 function inputmode._textinput(text)
 	content[carety] = content[carety]:sub(1, caretx - 1) .. text .. content[carety]:sub(caretx)
-	caretx += 1
+	caretx = caretx + 1
 	updatecaret()
 end
 function inputmode._drawstatusline()
@@ -312,16 +312,16 @@ function commandmode._keydown(key)
 	elseif key == "backspace" then
 		if commandlinecaret > 1 then
 			commandline = commandline:sub(1, commandlinecaret - 1) .. commandline:sub(commandlinecaret + 1)
-			commandlinecaret -= 1
+			commandlinecaret = commandlinecaret - 1
 			commandlinecaret = max(commandlinecaret, 1)
 		elseif #commandline <= 1 then
 			setmode(normalmode)
 		end
 	elseif key == "left" then
-		commandlinecaret -= 1
+		commandlinecaret = commandlinecaret - 1
 		commandlinecaret = max(commandlinecaret, 1)
 	elseif key == "right" then
-		commandlinecaret += 1
+		commandlinecaret = commandlinecaret + 1
 		commandlinecaret = min(commandlinecaret, #commandline)
 	end
 end
@@ -329,7 +329,7 @@ function commandmode._keyup(key)
 end
 function commandmode._textinput(text)
 	commandline = commandline:sub(1,commandlinecaret) .. text .. commandline:sub(commandlinecaret + 1)
-	commandlinecaret += 1
+	commandlinecaret = commandlinecaret + 1
 	commandlinecaret = min(commandlinecaret, #commandline)
 end
 function commandmode._drawstatusline()
