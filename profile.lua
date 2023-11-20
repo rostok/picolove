@@ -126,6 +126,7 @@ end
 local function sanitize(str)
   local sanitized = str or ""
   sanitized = sanitized:gsub("\\", "\\\\")  -- Escape backslashes
+  sanitized = sanitized:gsub("''", "\\'")  -- Escape double quotes
   sanitized = sanitized:gsub("\"", "\\\"")  -- Escape double quotes
   sanitized = sanitized:gsub("\n", "\\n")   -- Escape newlines
   sanitized = sanitized:gsub("\r", "\\r")   -- Escape carriage returns
@@ -154,16 +155,20 @@ function profile.tracingJSON()
   return output
 end
 
-function profile.flameHTML(datafile)
+function profile.flameHTML(dataFile,extraContent)
+  extraContent = extraContent or ""
+  local dataScript = dataFile and "<script src="..dataFile.."></script>" or "<script>"..profile.flameJS().."</script>"
   local o = [[<html>
   <style>
-  body {
+  a, body {
       color: white;
       background-color:gray;
-      font-family: Verdana;
+      font-family: 'Arial Narrow', Arial, sans-serif;
+      font-stretch: condensed;
+      overflow-x:scroll;
   }
   .bar {
-    font-size: 12px;
+      font-size: 12px;
       position: absolute;
       background-color: #3498db;
       height: 24px;
@@ -178,7 +183,7 @@ function profile.flameHTML(datafile)
       display: block; 
   }
   .tooltip {
-    font-size: 12px;
+      font-size: 12px;
       line-height: 12px;
       display: none; 
       position: absolute;
@@ -190,20 +195,36 @@ function profile.flameHTML(datafile)
       z-index: 10; 
       text-align: left;
   }
+  #scd {
+	position: absolute;
+    bottom: 10px;
+	left: 10px;
+  }
   </style>
   <body>
-  <script src=]]..datafile..[[></script>
+  <div id=scd><pre>]]..extraContent..[[</pre><input id=scale value=0 size=1></input>
+  <a href=# onclick='scale=width/maxtime;go();'>0</a>
+  <a href=# onclick='scale=100;go();'>100</a>
+  <a href=# onclick='scale=250;go();'>250</a>
+  <a href=# onclick='scale=500;go();'>500</a>
+  <a href=# onclick='scale=1000;go();'>1000</a>
+  <a href=# onclick='scale=2000;go();'>2000</a>
+  </div>
+  ]]..dataScript..[[
   <script>
   let width = document.documentElement.clientWidth-8;
   var maxtime = Math.max(...data.map(obj => obj.time));
+  var scale = width/maxtime;
   var minstack = Math.min(...data.map(obj => obj.depth = obj.stack.split('/').length));
-  var names = [...new Set(data.map(obj => obj.name))].reduce((acc, name, idx) => ({ ...acc, [name]: idx }), {});
-  const totalNames = Object.keys(names).length;
+  var names = [...new Set(data.map(obj => obj.name))].sort().reduce((acc, name, idx) => ({ ...acc, [name]: idx }), {});
+  var totalCalls = {};
+  data.forEach(d => totalCalls[d.name] = (totalCalls[d.name] || 0) + d.n);
+  data.forEach(d => d.totalCalls = totalCalls[d.name]);
+  var totalTime = {};
+  data.forEach(d => totalTime[d.name] = (totalTime[d.name] || 0) + d.time);
+  data.forEach(d => d.totalTime = totalTime[d.name]);
 
-  function stringToColor(str) {
-      const index = names[str];
-      return `hsl(${(360 * index) / totalNames}, 50%, 50%)`;
-  }
+  function stringToColor(str) { return `hsl(${(360 * names[str]) / Object.keys(names).length},50%,50%)`;  }
   
   function bar(x, y, w, t, d) {
       var bar = document.createElement('div');
@@ -212,16 +233,10 @@ function profile.flameHTML(datafile)
       bar.style.top = 4+y + 'px';
       bar.style.width = w + 'px';
       bar.innerHTML = t;
-      bar.tooltip = '';
-      //bar.tooltip += `stack:${d.stack}<br>`;
-      bar.tooltip += `source:${d.source}<br>`;
-      bar.tooltip += `defined:${d.defined}<br>`;
-      bar.tooltip += `declaration:${d.declaration}<br>`;
-      bar.tooltip += `n:${d.n}<br>`;
       bar.style.backgroundColor = stringToColor(t);
       var tooltip = document.createElement('div');
       tooltip.className = 'tooltip';
-      tooltip.innerHTML = bar.tooltip;
+      tooltip.innerHTML = 'name,source,defined,declaration,n,time,totalCalls,totalTime'.split(',').map(s=>`${s}:${d[s]}`).join('<br>');
   
       bar.addEventListener('mousemove', function(e) {
           tooltip.style.left = (e.clientX + 10) + 'px';
@@ -232,18 +247,28 @@ function profile.flameHTML(datafile)
   
       document.body.appendChild(tooltip);
       document.body.appendChild(bar);
+      console.log(tooltip.width);
   }
   function rec(depth,parent='',startTime=0) {
-    data.filter(d=>d.depth==depth && (parent=='' || d.stack.startsWith(parent)) ).forEach(d=>{
-      var x = startTime*width/maxtime;
+    data.filter(d=>d.depth==depth && (parent=='' || d.stack.startsWith(parent)) ).sort((a, b) => a.name.localeCompare(b.name)).forEach(d=>{
+      var x = startTime*scale;
       var y = (depth-minstack)*25;
-      var w = d.time*width/maxtime;
+      var w = d.time*scale;
       bar(x,y,w,d.name,d);
       rec(depth+1,d.stack,startTime);
       startTime += d.time;
     });
   }
-  rec(minstack)
+  function go() {
+    document.querySelectorAll('div.bar,div.toolbar').forEach(d=>d.remove())
+    rec(minstack)
+  }
+  go()
+  document.getElementById('scale').addEventListener('change', function(event) {
+  	var v = parseFloat(event.target.value)||0;
+  	scale = v==0 ? width/maxtime : v;
+  	go()
+  });
   </script>
   </body>    
   </html>]]
