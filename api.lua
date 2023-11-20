@@ -115,10 +115,15 @@ function api._picolove_end()
 	end
 end
 
+function api.setPicoCanvas()
+	-- love.graphics.setCanvas(pico8.screen)
+	love.graphics.setCanvas({pico8.screen,depth=pico8.depth})
+end
+
 function api._picolove_draw()
 	love.graphics.setCanvas() -- TODO: Rework this
 	love.event.pump()
-	love.graphics.setCanvas(pico8.screen)
+	api.setPicoCanvas()
 	if love.graphics and love.graphics.isActive() then
 		love.graphics.origin()
 		if love.draw then
@@ -189,7 +194,7 @@ function api.cls(col)
 
 	pico8.clip = nil
 	love.graphics.setScissor()
-	love.graphics.clear(col / 15, 0, 0, 1)
+	love.graphics.clear(col / 15, 0, 0, 1, true, true)
 	pico8.cursor = { 0, 0 }
 end
 
@@ -488,7 +493,7 @@ function api.pget(x, y)
 			canvasFrameNumber = pico8.frames
 			love.graphics.setCanvas()
 			canvasGrabbed = pico8.screen:newImageData()
-			love.graphics.setCanvas(pico8.screen)
+			api.setPicoCanvas()
 		end
 		local r = canvasGrabbed:getPixel(flr(x), flr(y))
 		return r * 15
@@ -507,7 +512,7 @@ function api.pgetOLD(x, y)
 	then
 		love.graphics.setCanvas()
 		local __screen_img = pico8.screen:newImageData()
-		love.graphics.setCanvas(pico8.screen)
+		api.setPicoCanvas()
 		local r = __screen_img:getPixel(flr(x), flr(y))
 		return r * 15
 	end
@@ -579,6 +584,7 @@ function api.print(...)
 
 	love.graphics.setShader(pico8.text_shader)
 	love.graphics.print(to_print, flr(x)-1, flr(y)-1)
+	love.graphics.setShader(pico8.draw_shader) -- rostok: i think we should fall back to draw_shader
 
 	-- return x,y being right and bottom coordinates
 	str = to_print
@@ -1972,7 +1978,7 @@ function api.memcpy(dest_addr, source_addr, len)
 	end
 	love.graphics.setCanvas()
 	local img = pico8.screen:newImageData()
-	love.graphics.setCanvas(pico8.screen)
+	api.setPicoCanvas()
 	for i = 0, len - 1 do
 		local x = flr(source_addr - 0x6000 + i) % 64 * 2
 		local y = flr((source_addr - 0x6000 + i) / 64)
@@ -2141,7 +2147,7 @@ function api.run()
 	if not cartname then
 		return
 	end
-	love.graphics.setCanvas(pico8.screen)
+	api.setPicoCanvas()
 	love.graphics.setShader(pico8.draw_shader)
 	restore_clip()
 	love.graphics.origin()
@@ -2169,7 +2175,7 @@ function api.run()
 	else
 		setfenv(f, pico8.cart)
 		love.graphics.setShader(pico8.draw_shader)
-		love.graphics.setCanvas(pico8.screen)
+		api.setPicoCanvas()
 		love.graphics.origin()
 		restore_clip()
 		

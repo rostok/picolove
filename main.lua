@@ -250,7 +250,7 @@ function _loadCART(_cartname)
 	end
 
 	love.graphics.setShader(pico8.draw_shader)
-	love.graphics.setCanvas(pico8.screen)
+	api.setPicoCanvas()
 	love.graphics.origin()
 	api.camera()
 	restore_clip()
@@ -416,8 +416,8 @@ function love.load(argv)
 
 	love.graphics.clear()
 	love.graphics.setDefaultFilter("nearest", "nearest")
-	pico8.screen =
-		love.graphics.newCanvas(pico8.resolution[1], pico8.resolution[2])
+	pico8.screen = love.graphics.newCanvas(pico8.resolution[1], pico8.resolution[2])
+	pico8.depth  = love.graphics.newCanvas(pico8.resolution[1], pico8.resolution[2], { format="depth24", readable=true})
 
 	pico8.screen:setFilter("linear", "nearest")
 
@@ -432,7 +432,7 @@ function love.load(argv)
 	love.graphics.setLineWidth(1)
 
 	love.graphics.origin()
-	love.graphics.setCanvas(pico8.screen)
+	api.setPicoCanvas()
 	restore_clip()
 
 	pico8.draw_palette = {}
@@ -444,14 +444,30 @@ function love.load(argv)
 		pico8.display_palette[i] = pico8.palette[i]
 	end
 
-	pico8.draw_shader = love.graphics.newShader([[
-extern float palette[32];
+	-- there seems to be no way to show depth buffer
+	-- for some reason it is always black
+	-- and cant access it via newImageDate
+	-- maybe by modifying drawPixelShader and display_shader with disabling palette lookup and just pass extern z as returned value?
+	pico8.depthView = love.graphics.newShader([[
+		extern Image depth;
+		
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
+			float depthValue = Texel(depth, texture_coords).r;
+			vec4 grayscale = vec4(vec3(depthValue), 1.0);
+			return grayscale;
+		}
+	]])
 
+	local drawPixelShader = [[
+extern float palette[32];
+extern float z;
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
+	gl_FragDepth = z;
 	int index = int(color.r*15.0+0.5);
-	
 	return vec4(palette[index]/15.0, 0.0, 0.0, 1.0);
-}]])
+}]]
+
+	pico8.draw_shader = love.graphics.newShader(drawPixelShader)
 	pico8.draw_shader:send("palette", shdr_unpack(pico8.draw_palette))
 
 	pico8.sprite_shader = love.graphics.newShader([[
@@ -688,7 +704,7 @@ function love.update(_)
 end
 
 function love.draw()
-	love.graphics.setCanvas(pico8.screen)
+	api.setPicoCanvas()
 	restore_clip()
 	restore_camera()
 
@@ -756,7 +772,11 @@ function flip_screen()
     -- Calculate the offsets to center the scaled pico8 screen
     local x_offset, y_offset = (window_w - pico8_w) / 2, (window_h - pico8_h) / 2
     -- Draw the scaled pico8 screen centered on the LOVE display
-    love.graphics.draw(pico8.screen, x_offset, y_offset, 0, scale, scale)
+    love.graphics.draw(pico8.screen, x_offset, y_offset, 0, scale, scale)	
+	
+	-- love.graphics.setShader(pico8.depthView)
+	-- pico8.depthView:send("depth",pico8.depth)
+    -- love.graphics.draw(pico8.depth, x_offset, y_offset, 0, scale, scale)	
 
 	love.graphics.present()
 
@@ -768,7 +788,7 @@ function flip_screen()
 	end
 	-- get ready for next time
 	love.graphics.setShader(pico8.draw_shader)
-	love.graphics.setCanvas(pico8.screen)
+	api.setPicoCanvas()
 	restore_clip()
 	restore_camera()
 end
@@ -1182,7 +1202,7 @@ function love.run()
 		if love.event then
 			love.graphics.setCanvas() -- TODO: Rework this
 			love.event.pump()
-			love.graphics.setCanvas(pico8.screen) -- TODO: Rework this
+			api.setPicoCanvas() -- TODO: Rework this
 			for name, a, b, c, d, e, f in love.event.poll() do
 				if name == "quit" then
 					if not love.quit or not love.quit() then
@@ -1256,7 +1276,7 @@ end
 local utf8 = require("utf8")
 
 function add_code_to_traceback(trace,temp)
-	temp = temp or "  >> %1 "
+	temp = temp or "%1"
 	local lines = {}
 	for line in love.filesystem.lines(__pico_cart) do table.insert(lines, line) end
 
@@ -1361,7 +1381,7 @@ function love.errorhandler(msg)
 		if not love.graphics.isActive() then return end
 		local pos = 32
 		love.graphics.clear(89/255, 157/255, 220/255) -- blueish
-		love.graphics.clear(0.3,0.1,0.1) -- blueish
+		love.graphics.clear(0.3,0.1,0.1) -- reddish
 		love.graphics.printf(p, pos, pos, love.graphics.getWidth() - pos)
 		love.graphics.present()
 	end
@@ -1426,17 +1446,16 @@ end
 function profileReport(counter, filename, depth)
 	if counter == 0 then
 		local json = profile.tracingJSON()
-		local html = profile.flameHTML(filename:gsub(".txt",".js"))
-		local js   = profile.flameJS()
 		local report = profile.report(depth or 30)
-		-- report = add_code_to_traceback(report," %1 ")
-		report = add_code_to_traceback(report," %1")
+		report = add_code_to_traceback(report)
+
+		local html = profile.flameHTML(nil,report)
+
 		log(filename)
 		log(report)
 		profile.reset()
 		api.writeFile(filename, report)
 		api.writeFile(filename:gsub(".txt",".json"), json)
-		api.writeFile(filename:gsub(".txt",".js"), js)
 		api.writeFile(filename:gsub(".txt",".html"), html)
 
 		-- set tab separated clipboard
