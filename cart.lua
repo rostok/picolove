@@ -224,7 +224,7 @@ function cart.load_p8(filename)
 		end
 
 		-- decompress code
-		log("version", version)
+		-- log("version", version)
 		if version > 8 then
 			api.print(string.format("unknown file version %d", version), 3)
 		end
