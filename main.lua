@@ -680,6 +680,7 @@ local function update_buttons()
 	end
 end
 
+
 function love.update(_)
 	pico8.frames=pico8.frames+1
 	update_buttons()
@@ -694,7 +695,6 @@ function love.update(_)
 	
 	__profiling.U = profileReport(__profiling.U, "profileU.txt", 30)
 	__profiling.S = profileReport(__profiling.S, "profileS.txt", 30)
-	__profiling.D = profileReport(__profiling.D, "profileD.txt", 30)
 
 	-- copy current frame keys to last frame keys, this must be AFTER update function
 	pico8.last_keys = {}
@@ -716,6 +716,9 @@ function love.draw()
 		pico8.cart._draw()
 	end
 	if __profiling.D>0 then profile.stop() end
+
+	__profiling.D = profileReport(__profiling.D, "profileD.txt", 30)
+	__profiling.R = profileReport(__profiling.R, "profileR.txt", 30)
 
 	-- draw the contents of pico screen to our screen
 	flip_screen()
@@ -993,7 +996,22 @@ local function isAltDown()
 end
 
 function love.keypressed(key)
-	if key == "r" and isCtrlOrGuiDown() and not isAltDown() then -- ctrl+r
+	if key == "f1" then 
+		log("F1          - help")
+		log("F3 / Ctrl8  - start gif recording")
+		log("F4 / Ctrl9  - end gif recording")
+		log("F5          - restart")
+		log("F7          - load window state")
+		log("F7+Ctrl     - save window state")
+		log("F9          - profile update")
+		log("F9+Ctrl     - profile draw")
+		log("F9+Alt      - profile special")
+		log("F9+Ctrl+Alt - profile render")
+		log("Ctrl+R      - reload")
+		log("Ctrl+Q      - quit")
+		log("Alt+Enter   - full screen")
+		log("PrtScr      - screenshot")
+	elseif key == "r" and isCtrlOrGuiDown() and not isAltDown() then -- ctrl+r
 		log('reloading cart')
 		api.reload_cart()
 		api.run()
@@ -1015,18 +1033,23 @@ function love.keypressed(key)
 	    loadWindowState()
 	elseif key == "f9" and not isCtrlOrGuiDown() and not isAltDown() then
 		if __profiling.U<0 then 
-			log('PROFILING UPDATE...')
+			log('PROFILING UPDATE ('..__profiling.frames..') ...')
 			__profiling.U = __profiling.frames 
 		end
 	elseif key == "f9" and     isCtrlOrGuiDown() and not isAltDown() then
 		if __profiling.D<0 then 
-			log('PROFILING DRAW...')
+			log('PROFILING DRAW ('..__profiling.frames..') ...')
 			__profiling.D = __profiling.frames
 		end
 	elseif key == "f9" and not isCtrlOrGuiDown() and     isAltDown() then
 		if __profiling.S<0 then 
-			log('PROFILING SPECIAL...')
+			log('PROFILING SPECIAL ('..__profiling.frames..') ...')
 			__profiling.S = __profiling.frames
+		end
+	elseif key == "f9" and     isCtrlOrGuiDown() and     isAltDown() then
+		if __profiling.D<0 then 
+			log('PROFILING RENDER ('..__profiling.frames..') ...')
+			__profiling.R = __profiling.frames
 		end
 
 	-- elseif key == "f10" then
@@ -1074,7 +1097,7 @@ function love.keypressed(key)
 		pico8.clipboard = love.system.getClipboardText()
 	elseif pico8.can_pause and (key == "pause") then --  or key == "p" -- i will need this key for typing
 		paused = not paused
-	elseif key == "f1" then
+	elseif key == "printscreen" then
 		-- screenshot
 		local filename = cartname .. "-" .. os.time() .. ".png"
 		local screenshot = love.graphics.captureScreenshot(filename)
@@ -1444,6 +1467,7 @@ end
 -- checks if counter reached 0, if so writes report
 -- decreases counter and returns its value
 function profileReport(counter, filename, depth)
+	if counter>=0 then api.lognl("PROFILING ",counter,"  \r") end
 	if counter == 0 then
 		local json = profile.tracingJSON()
 		local report = profile.report(depth or 30)
@@ -1452,17 +1476,15 @@ function profileReport(counter, filename, depth)
 		local html = profile.flameHTML(nil,report)
 
 		log(filename)
-		log(report)
+		-- log(report)
 		profile.reset()
 		api.writeFile(filename, report)
 		api.writeFile(filename:gsub(".txt",".json"), json)
 		api.writeFile(filename:gsub(".txt",".html"), html)
 
 		-- set tab separated clipboard
-		log("clipboard set")
+		-- log("clipboard set")
 		love.system.setClipboardText( (report.."\n"):gsub('[^\n]*%+%-[^\n]*\n', ''):gsub('|', '\t') )
-
-
 	end
 	return counter - 1
 end
