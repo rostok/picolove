@@ -21,6 +21,7 @@ local api = {}
 
 local flr = math.floor
 api.math = math
+api.tonumber = tonumber
 api.love = love
 api.bit = bit
 api.debug = debug
@@ -85,6 +86,11 @@ end
 -- generic object to expose various api
 function api._profileReport(counter, filename, depth)
 	profileReport(counter, filename, depth)
+end
+
+-- collect garbage shiv
+function api.collectgarbage(opt,arg)
+	collectgarbage(opt,arg)
 end
 
 -- generic object to expose various api
@@ -1000,6 +1006,11 @@ function api.circfill(cx, cy, r, col)
 			love.graphics.line(lines[i])
 		end
 	end
+end
+
+function api.ellipse(x, y, rx, ry, col)
+	if col then color(col) end
+	love.graphics.ellipse("line",x,y,rx,ry)
 end
 
 function api.oval(x0, y0, x1, y1, col)
