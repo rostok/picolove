@@ -16,6 +16,7 @@ __pico_cart = "schifahren-game-combined.p8"
 __no_pcall = not true -- if true api.run() will call f() instead of pcall(f) for better traceback debugging
 __profiling = {
 	S = -1, -- special profiling, set above 0 will profile this number of frames, at 0 writes report, at negative does nothing 
+	R = -1, -- special render/draw profiling for _draw()
 	U = -1, -- update profiling 
 	D = -1, -- draw profiling
 	frames = 10
