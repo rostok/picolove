@@ -274,7 +274,7 @@ function cart.load_p8(filename)
 
 		local version_str = data:sub(header_end, next_line - 1)
 		local version = tonumber(version_str)
-		log("version", version)
+		-- log("version", version) -- rostok: no need to show version
 
 		-- extract the lua
 		lua = data:match("\n__lua__.-\n(.-)\n__[%w]+__") or ""
