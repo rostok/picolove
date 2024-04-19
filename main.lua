@@ -7,12 +7,11 @@ local debugserver = nil
 -- local debugserver = require("debugserver")
 -- debugserver.startServer(1234) -- Replace with your desired port number
 
-print("picolove hello @ ".._VERSION);
+print("picolove hello @ ".._VERSION.." & Love2D "..table.concat({love.getVersion()},"."))
 require("strict")
 local QueueableSource = require("QueueableSource")
 
 local bit = require("bit")
-
 local api = require("api")
 local cart = require("cart")
 
@@ -273,6 +272,11 @@ function _loadPURELUA(cartname)
 	pico8.cart = new_sandbox()
 	pico8.cart.dofileLUA = dofile
 	pico8.cart.dofile = function (filename)
+		success("----------------------")
+		success("----------------------")
+		success("----------------------")
+		success("----------------------")
+		warning("loading "..filename)
         local file = love.filesystem.newFile(filename, "r")
 		if file then
 		  local chunk = file:read()
@@ -285,7 +289,7 @@ function _loadPURELUA(cartname)
 		else
 		  error("File '" .. filename .. "' not found")
 		end
-	  end
+	end
 
 	pico8.cart.require = function (moduleName)
 		if package.loaded[moduleName] then
@@ -416,8 +420,9 @@ function love.load(argv)
 
 	love.graphics.clear()
 	love.graphics.setDefaultFilter("nearest", "nearest")
-	pico8.screen = love.graphics.newCanvas(pico8.resolution[1], pico8.resolution[2])
-	pico8.depth  = love.graphics.newCanvas(pico8.resolution[1], pico8.resolution[2], { format="depth24", readable=true})
+	api.__picolove_resize_canvas(pico8.resolution[1], pico8.resolution[2])
+	-- pico8.screen = love.graphics.newCanvas(pico8.resolution[1], pico8.resolution[2])
+	-- pico8.depth  = love.graphics.newCanvas(pico8.resolution[1], pico8.resolution[2], { format="depth24stencil8", readable=true})
 
 	pico8.screen:setFilter("linear", "nearest")
 
@@ -447,7 +452,7 @@ function love.load(argv)
 	-- there seems to be no way to show depth buffer
 	-- for some reason it is always black
 	-- and cant access it via newImageDate
-	-- maybe by modifying drawPixelShader and display_shader with disabling palette lookup and just pass extern z as returned value?
+	-- maybe by modifying draw_shader and display_shader with disabling palette lookup and just pass extern z as returned value?
 	pico8.depthView = love.graphics.newShader([[
 		extern Image depth;
 		
@@ -458,16 +463,17 @@ function love.load(argv)
 		}
 	]])
 
-	local drawPixelShader = [[
+	local draw_shader = [[
 extern float palette[32];
 extern float z;
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
-	gl_FragDepth = z;
+	//gl_FragDepth = z;
+	gl_FragDepth = max(texture_coords.y,z); // lower z is closer, bigger is further,   
 	int index = int(color.r*15.0+0.5);
-	return vec4(palette[index]/15.0, 0.0, 0.0, 1.0);
+	return vec4(palette[index]/15.0,gl_FragDepth,0, 1.0); // should zbuffer view be needed it is passed as green component
 }]]
 
-	pico8.draw_shader = love.graphics.newShader(drawPixelShader)
+	pico8.draw_shader = love.graphics.newShader(draw_shader)
 	pico8.draw_shader:send("palette", shdr_unpack(pico8.draw_palette))
 
 	pico8.sprite_shader = love.graphics.newShader([[
@@ -506,6 +512,16 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 	
 	// lookup the color in the palette by index
 	return palette[index]/255.0;
+
+	// playtesting below
+	//vec4 v;
+	//v = palette[index]/255.0; // normal 
+	//vec4 t = Texel(texture, texture_coords);
+	//v.r = t.r;v.g = t.r;v.b = t.b; // show color index
+	//v.r = t.g;v.g = t.g;v.b = t.g; // show depth values passed as green
+	//v.r = t.b;v.g = t.b;v.b = t.b; // blue is unused
+	//v.r = t.r;v.g = t.g;v.b = t.b;  // red index, green depth, blue ?
+	//return v;
 }]])
 	pico8.display_shader:send("palette", shdr_unpack(pico8.display_palette))
 
@@ -1016,15 +1032,18 @@ function love.keypressed(key)
 		api.reload_cart()
 		api.run()
 		return
+	-- elseif key == "f7" and isAltDown() then
+	-- 	love.graphics.setCanvas()
+	-- 	love.window.setFullscreen(false);
 	elseif key == "f7" and isCtrlOrGuiDown() then
         local width, height, flags = love.window.getMode()
 		local x,y,d
 		love.graphics.setCanvas()
 		width =  pico8.resolution[1]*pico8.resolution[3]
 		height = pico8.resolution[2]*pico8.resolution[3]
-		if flags.x>1 then
+		if flags.display<=1 then
 			x,y,d,width,height = 1,1378,2,1078,540
-		else
+		else	
 			x,y,d = 1920-pico8.resolution[1]*pico8.resolution[3],1,1
 		end
 		love.window.setMode(width,height,{x=x,y=y,display=d})
@@ -1551,7 +1570,7 @@ function loadWindowState()
         flags.display = flags.display or 1
         flags.minwidth = flags.minwidth or 480
         flags.minheight = flags.minheight or 270
-        --log("window state", x, y, width, height, flags.display, state.display)
+        log("window state", x, y, width, height, flags.display, state.display)
         love.graphics.setCanvas()
 		flags.x,flags.y = x,y
         window.setMode(width, height, flags)

@@ -27,6 +27,7 @@ api.bit = bit
 api.debug = debug
 api.os = os
 api.serpent = require("serpent")
+api.gifpic = require("gifpic")
 
 local function color(c)
 	if c ~= pico8.color then -- rostok: skip if this is current color
@@ -40,16 +41,24 @@ local function warning(msg)
 	log(debug.traceback("WARNING: " .. msg, 3))
 end
 
-local function _horizontal_line(lines, x0, y, x1)
+local function _horizontal_line_old(lines, x0, y, x1)
 	table.insert(lines, { x0 + 0.5, y + 0.5, x1 + 1.5, y + 0.5 })
 end
 
-local function _plot4points(lines, cx, cy, x, y)
+local function _plot4points_old(lines, cx, cy, x, y)
 	_horizontal_line(lines, cx - x, cy + y, cx + x)
 	if y ~= 0 then
 		_horizontal_line(lines, cx - x, cy - y, cx + x)
 	end
 end
+
+local function _plot4points(lines, cx, cy, x, y)
+	lines[#lines+1] = { cx - x + 0.5, cy + y + 0.5, cx + x + 1.5, cy + y + 0.5 }
+	if y ~= 0 then
+		lines[#lines+1] = { cx - x + 0.5, cy - y + 0.5, cx + x + 1.5, cy - y + 0.5 }
+	end
+end
+
 
 local function scroll(pixels)
 	local base = 0x6000
@@ -90,7 +99,7 @@ end
 
 -- collect garbage shiv
 function api.collectgarbage(opt,arg)
-	collectgarbage(opt,arg)
+	return collectgarbage(opt,arg)
 end
 
 -- generic object to expose various api
@@ -98,15 +107,21 @@ function api._picolove()
 	return {
 		__profiling=__profiling,
 		profile=profile,
+		profile_start =   function () profile.start() end,
+		profile_stop =    function () profile.stop() end,
+		profile_s_start = function () if __profiling.S>0 then profile.start() end end,
+		profile_s_stop =  function () if __profiling.S>0 then profile.stop() end end,
 		_G=_G,
 		timer=love.timer,
 		pico8=pico8,
+		love=love,
 		load=function (code) local f = load(code) setfenv(f,pico8.cart) return f() end
 	}
 end
 
 function api.__picolove_resize_canvas(w,h)
 	pico8.screen = love.graphics.newCanvas(w,h)
+	pico8.depth  = love.graphics.newCanvas(w, h, { format="depth24stencil8", readable=true})
 	pico8.resolution[1] = w
 	pico8.resolution[2] = h
 end
@@ -123,7 +138,9 @@ end
 
 function api.setPicoCanvas()
 	-- love.graphics.setCanvas(pico8.screen)
-	love.graphics.setCanvas({pico8.screen,depth=pico8.depth})
+	-- love.graphics.setCanvas({pico8.screen,stencil=true,depth=pico8.depth})
+	-- love.graphics.setCanvas({pico8.screen,stencil=true,depth=true})
+	love.graphics.setCanvas({pico8.screen,stencil=true,depth=true,depthstencil=pico8.depth})
 end
 
 function api._picolove_draw()
@@ -479,7 +496,7 @@ function api.pset(x, y, col)
 end
 
 function api.psets(col,...)
-	if col then color(col) end
+	if col and col ~= pico8.color then color(col) end -- rostok: skip color if same
 	love.graphics.points(...)
 end
 
@@ -604,7 +621,7 @@ end
 api.printh = print
 api.io = io
 api.loadstring = loadstring
-api.dofile = dofile
+-- api.dofile = dofile
 
 function api.cursor(x, y, col)
 	if col then
@@ -940,7 +957,7 @@ function api.circfill2(ox, oy, r, col)
 	)
 end
 
-function api.circ(ox, oy, r, col)
+function api.circold(ox, oy, r, col)
 	if col then
 		color(col)
 	end
@@ -962,6 +979,48 @@ function api.circ(ox, oy, r, col)
 		table.insert(points, { ox - y, oy - x })
 		table.insert(points, { ox + x, oy - y })
 		table.insert(points, { ox + y, oy - x })
+		y = y + 1
+		if decisionOver2 < 0 then
+			decisionOver2 = decisionOver2 + 2 * y + 1
+		else
+			x = x - 1
+			decisionOver2 = decisionOver2 + 2 * (y - x) + 1
+		end
+	end
+	if #points > 0 then
+		love.graphics.points(points)
+	end
+end
+
+function api.circ(ox, oy, r, col)
+	if col then
+		color(col)
+	end
+	ox = flr(ox)-- + 1 -- rostok, making top-left pixel 1,1 not 0,0
+	oy = flr(oy)-- + 1 -- rostok, making top-left pixel 1,1 not 0,0
+	r = flr(r)
+	local points = {}
+	local x = r
+	local y = 0
+	local decisionOver2 = 1 - x
+
+	while y <= x do
+		points[#points+1] = ox + x
+		points[#points+1] = oy + y
+		points[#points+1] = ox + y
+		points[#points+1] = oy + x
+		points[#points+1] = ox - x
+		points[#points+1] = oy + y
+		points[#points+1] = ox - y
+		points[#points+1] = oy + x
+		points[#points+1] = ox - x
+		points[#points+1] = oy - y
+		points[#points+1] = ox - y
+		points[#points+1] = oy - x
+		points[#points+1] = ox + x
+		points[#points+1] = oy - y
+		points[#points+1] = ox + y
+		points[#points+1] = oy - x
 		y = y + 1
 		if decisionOver2 < 0 then
 			decisionOver2 = decisionOver2 + 2 * y + 1
@@ -1008,6 +1067,53 @@ function api.circfill(cx, cy, r, col)
 	end
 end
 
+-- original bresenham but with much faster polygon fill
+function api.circfillpoly(cx, cy, r, col)
+	if col then
+		color(col)
+	end
+	cx = flr(cx)-1
+	cy = flr(cy)-1
+	r = flr(r)
+	local x = r
+	local y = 0
+	local err = 1 - r
+
+	local verts = {} -- x1,y1,x2,y2 with total size of r*4
+
+	while y <= x do
+		--_plot4points(lines, cx, cy, x, y)
+		verts[r*0+y*2+1]=cx+x -- 0
+		verts[r*0+y*2+2]=cy+y
+		verts[r*4-y*2+1]=cx-x -- 3
+		verts[r*4-y*2+2]=cy+y
+		verts[r*4+y*2+1]=cx-x -- 4
+		verts[r*4+y*2+2]=cy-y
+		verts[r*6+y*2+1]=cx+x -- 7
+		verts[r*6+y*2+2]=cy-y 
+		if err < 0 then
+			err = err + 2 * y + 3
+		else
+			if x ~= y then
+				verts[r*0+x*2+1]=cx+y -- 1
+				verts[r*0+x*2+2]=cy+x
+				verts[r*4-x*2+1]=cx-y -- 2
+				verts[r*4-x*2+2]=cy+x
+				verts[r*4+x*2+1]=cx-y -- 5
+				verts[r*4+x*2+2]=cy-x
+				verts[r*8-x*2+1]=cx+y -- 6
+				verts[r*8-x*2+2]=cy-x
+			end
+			x = x - 1
+			err = err + 2 * (y - x) + 3
+		end
+		y = y + 1
+	end
+	if #verts > 0 then
+		love.graphics.polygon("fill",verts)
+	end
+end
+
 function api.ellipse(x, y, rx, ry, col)
 	if col then color(col) end
 	love.graphics.ellipse("line",x,y,rx,ry)
@@ -1016,15 +1122,33 @@ end
 function api.oval(x0, y0, x1, y1, col)
 	if col then color(col) end
 	local x,y=(x1+x0)/2,(y1+y0)/2
-	local rx,ry=math.abs(x1-x0)/2,math.abs(y1-y0)/2
+	local rx,ry=math.abs(x1-x),math.abs(y1-y)
 	love.graphics.ellipse("line",x,y,rx,ry)
 end
 
 function api.ovalfill(x0, y0, x1, y1, col)
 	if col then color(col) end
 	local x,y=(x1+x0)/2,(y1+y0)/2
-	local rx,ry=math.abs(x1-x0)/2,math.abs(y1-y0)/2
+	local rx,ry=math.abs(x1-x),math.abs(y1-y)
 	love.graphics.ellipse("fill",x,y,rx,ry)
+end
+
+function api.rotoval(a, x0, y0, x1, y1, col)
+    love.graphics.push()
+    love.graphics.translate((x1 + x0) / 2, (y1 + y0) / 2)
+    love.graphics.rotate(- (a or 0) * 2 * math.pi)
+    love.graphics.translate(-(x1 + x0) / 2, -(y1 + y0) / 2)
+    api.oval(x0, y0, x1, y1, col)
+    love.graphics.pop()
+end
+
+function api.rotovalfill(a, x0, y0, x1, y1, col)
+    love.graphics.push()
+    love.graphics.translate((x1 + x0) / 2, (y1 + y0) / 2)
+    love.graphics.rotate(- (a or 0) * 2 * math.pi)
+    love.graphics.translate(-(x1 + x0) / 2, -(y1 + y0) / 2)
+    api.ovalfill(x0, y0, x1, y1, col)
+    love.graphics.pop()
 end
 
 -- the original line picolove implementation but with variable parameter coords
@@ -1518,6 +1642,43 @@ api.line = api.line0
 
 function api.polygon(...)
 	love.graphics.polygon("fill",...)
+end
+
+function api.meshpolygonOLD(...)
+    local cnt = select('#', ...);
+	local args = {}
+	for i = 1, cnt,2 do
+        -- args[#args+1] = {select(i, ...),select(i+1, ...),0,0,1,1,1,1}
+        args[#args+1] = {select(i, ...),select(i+1, ...),0,.4}
+    end
+	local mesh = love.graphics.newMesh(args,"fan","dynamic")
+	-- mesh:flush()
+	love.graphics.draw( mesh )
+	mesh:release();
+end
+
+-- draw zbuffered polygon, tab values are {x,y,z}
+-- with z being 0..1 or smaller as in setZ()
+-- buffer passed to mesh are x,y,0,z with texure-v acting as z
+function api.meshpolygon(tab)
+	for i = 1, #tab do
+        -- tab[i][4] = tab[i][3]
+        -- tab[i][3] = 0
+		local z = tab[i][3]
+        tab[i][3] = 0
+        tab[i][4] = z
+        tab[i][5] = pico8.color
+        tab[i][6] = z
+        tab[i][7] = 0
+        tab[i][8] = 0
+    end
+	local mesh = love.graphics.newMesh(tab,"fan","dynamic")
+	love.graphics.draw( mesh )
+	mesh:release()
+end
+
+function api.polygonline(...)
+	love.graphics.polygon("line",...)
 end
 
 function api.pal(c0, c1, p)
@@ -2701,7 +2862,7 @@ end
 
 api.select = select
 
-function api.lastof(...) 
+function api.lastof(...)
     if select("#",...)==0 then return nil end
 	return select(-1,...)
 end
