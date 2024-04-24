@@ -464,13 +464,29 @@ function love.load(argv)
 	]])
 
 	local draw_shader = [[
+extern float threshold = 0; // alpha dithering level 0.0-1.0, 0 fully transparent, 1 fully opaque
+extern int viewx = 0;
+extern int viewy = 0;
+int ditherPattern[16] = int[16](
+	0,  8,  2, 10,
+	12,  4, 14, 6,
+	3, 11,  1,  9,
+	15,  7, 13, 5
+);
 extern float palette[32];
 extern float z;
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
 	//gl_FragDepth = z;
 	gl_FragDepth = max(texture_coords.y,z); // lower z is closer, bigger is further,   
 	int index = int(color.r*15.0+0.5);
-	return vec4(palette[index]/15.0,gl_FragDepth,0, 1.0); // should zbuffer view be needed it is passed as green component
+	float a = 1.0;
+	if (threshold>0) {
+		int u = int(mod(screen_coords.x + viewx,4));
+		int v = int(mod(screen_coords.y + viewy,4));
+		int i = u+v*4;
+		if (ditherPattern[i]/15.0<=threshold) { a = 0.0; gl_FragDepth = 999; }
+	}
+	return vec4(palette[index]/15.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component
 }]]
 
 	pico8.draw_shader = love.graphics.newShader(draw_shader)
@@ -1572,7 +1588,8 @@ function loadWindowState()
         flags.minheight = flags.minheight or 270
         log("window state", x, y, width, height, flags.display, state.display)
         love.graphics.setCanvas()
-		flags.x,flags.y = x,y
+		local dw,dh = love.window.getDesktopDimensions( flags.display )
+		flags.x,flags.y = math.min(x,dw-width),math.min(y,dh-height)
         window.setMode(width, height, flags)
 		love.graphics.present()
     end
