@@ -123,6 +123,7 @@ pico8 = {
 	line_endpoint_x = 0,
 	line_endpoint_y = 0,
 }
+api.__pico8 = pico8
 pico8_glyphs = { [0] = "\0",
 	"¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "\t", "\n", "ᵇ",
 	"ᶜ", "\r", "ᵉ", "ᶠ", "▮", "■", "□", "⁙", "⁘", "‖", "◀",
@@ -467,6 +468,8 @@ function love.load(argv)
 extern float threshold = 0; // alpha dithering level 0.0-1.0, 0 fully transparent, 1 fully opaque
 extern int viewx = 0;
 extern int viewy = 0;
+//extern int vieww = 480;
+extern int viewh = 270;
 int ditherPattern[16] = int[16](
 	0,  8,  2, 10,
 	12,  4, 14, 6,
@@ -477,7 +480,10 @@ extern float palette[32];
 extern float z;
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
 	//gl_FragDepth = z;
-	gl_FragDepth = max(texture_coords.y,z); // lower z is closer, bigger is further,   
+	float vz = texture_coords.y; // vertex z value
+	float cz = min(vz,z); // these are in world space, calculated z
+	gl_FragDepth = 1-(cz-(viewy-viewh/2))/viewh/3-0.3333333;
+	// lower z is closer, bigger is further,   
 	int index = int(color.r*15.0+0.5);
 	float a = 1.0;
 	if (threshold>0) {
@@ -489,8 +495,44 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 	return vec4(palette[index]/15.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component
 }]]
 
+	-- blue noise dithering
+	local blueNoise = love.graphics.newImage("bluenoise.png")
+	local draw_shader = [[
+		extern float threshold = 0; // alpha dithering level 0.0-1.0, 0 fully opaque, 1 fully transparent
+		extern int viewx = 0;
+		extern int viewy = 0;
+		//extern int vieww = 480;
+		extern int viewh = 270;
+    	extern Image blueNoise; 
+		extern float palette[32];
+		extern float z;
+
+		bool isNaN(float val) { return val != val; }
+		bool isInf(float val) { return val * 0.5 == val && val != 0.0; }
+		float unlerp(float alfa, float omega, float pos) { return (pos - alfa) / (omega - alfa); }
+
+		vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
+			float vz = texture_coords.y; // vertex z value
+			float cz = z;
+			if (isNaN(z)||isInf(z)) cz = vz;
+			gl_FragDepth = unlerp( viewy+viewh*2, viewy-viewh*2, cz ); // extend view so 0..1 of z is below and benath of visible area
+			//gl_FragDepth = clamp(gl_FragDepth,0.0,1.0);
+			int index = int(color.r*15.0+0.5);
+			float a = 1.0;
+			if (threshold!=0) {
+				vec2 bn;
+				bn.x = mod(screen_coords.x + viewx,256)/255;
+				bn.y = mod(screen_coords.y + viewy,256)/255;
+				if (threshold>0 && Texel(blueNoise,bn).x<=threshold) { a = 0.0; gl_FragDepth = 999; }
+				if (threshold<0 && Texel(blueNoise,bn).x>=-threshold) { a = 0.0; gl_FragDepth = 999; }
+			}
+			return vec4(palette[index]/15.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component
+		}]]
+	-- blue noise ends
+
 	pico8.draw_shader = love.graphics.newShader(draw_shader)
 	pico8.draw_shader:send("palette", shdr_unpack(pico8.draw_palette))
+	pico8.draw_shader:send("blueNoise", blueNoise)
 
 	pico8.sprite_shader = love.graphics.newShader([[
 extern float palette[32];
@@ -809,6 +851,7 @@ function flip_screen()
     -- Draw the scaled pico8 screen centered on the LOVE display
     love.graphics.draw(pico8.screen, x_offset, y_offset, 0, scale, scale)	
 	
+	-- draw zbuffer
 	-- love.graphics.setShader(pico8.depthView)
 	-- pico8.depthView:send("depth",pico8.depth)
     -- love.graphics.draw(pico8.depth, x_offset, y_offset, 0, scale, scale)	
@@ -1323,7 +1366,22 @@ function love.run()
 			
 		if love.timer then
 			if pico8.frameLimiter>0 then 
-				love.timer.sleep( 1.0/pico8.frameLimiter - (love.timer.getTime()-limiter_time) ) 
+				local timeLeft = 1.0/pico8.frameLimiter - (love.timer.getTime()-limiter_time)
+
+				-- https://love2d.org/forums/viewtopic.php?p=254778
+				
+				api.manualGC(timeLeft,4096)
+
+				-- local start = love.timer.getTime()
+				-- for i = 1, 1000 do
+				-- 	collectgarbage("step", 1)
+				-- 	if love.timer.getTime() - start > timeLeft then
+				-- 		break
+				-- 	end
+				-- end
+
+				timeLeft = 1.0/pico8.frameLimiter - (love.timer.getTime()-limiter_time)
+				love.timer.sleep( timeLeft ) 
 			else
 				love.timer.sleep(0.001)
 			end
@@ -1589,7 +1647,7 @@ function loadWindowState()
         log("window state", x, y, width, height, flags.display, state.display)
         love.graphics.setCanvas()
 		local dw,dh = love.window.getDesktopDimensions( flags.display )
-		flags.x,flags.y = math.min(x,dw-width),math.min(y,dh-height)
+		flags.x,flags.y = math.min(x,dw-width),math.min(y,dh-height-32)
         window.setMode(width, height, flags)
 		love.graphics.present()
     end
