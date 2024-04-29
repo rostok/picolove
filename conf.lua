@@ -19,7 +19,7 @@ __profiling = {
 	R = -1, -- special render/draw profiling for _draw()
 	U = -1, -- update profiling 
 	D = -1, -- draw profiling
-	frames = 10
+	frames = 5
 }
 __pico_nofocus_update = true -- if true will not pause on loosing focus
 function love.conf(t)
