@@ -1644,17 +1644,20 @@ function api.polygon(...)
 	love.graphics.polygon("fill",...)
 end
 
+local mesh = love.graphics.newMesh({{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0}},"fan","dynamic")
+
 function api.meshpolygonOLD(...)
     local cnt = select('#', ...);
 	local args = {}
 	for i = 1, cnt,2 do
         -- args[#args+1] = {select(i, ...),select(i+1, ...),0,0,1,1,1,1}
-        args[#args+1] = {select(i, ...),select(i+1, ...),0,.4}
+        args[#args+1] = {select(i, ...),select(i+1, ...),0}
     end
-	local mesh = love.graphics.newMesh(args,"fan","dynamic")
+	-- local mesh = love.graphics.newMesh(args,"fan","dynamic")
+	mesh:setVertices(args)
 	-- mesh:flush()
 	love.graphics.draw( mesh )
-	mesh:release();
+	-- mesh:release();
 end
 
 -- draw zbuffered polygon, tab values are {x,y,z}
@@ -1662,19 +1665,13 @@ end
 -- buffer passed to mesh are x,y,0,z with texure-v acting as z
 function api.meshpolygon(tab)
 	for i = 1, #tab do
-        -- tab[i][4] = tab[i][3]
-        -- tab[i][3] = 0
-		local z = tab[i][3]
-        tab[i][3] = 0
-        tab[i][4] = z
+		local z = tab[i][4]
         tab[i][5] = pico8.color
         tab[i][6] = z
-        tab[i][7] = 0
-        tab[i][8] = 0
     end
-	local mesh = love.graphics.newMesh(tab,"fan","dynamic")
+	mesh:setVertices(tab,1,#tab)
+	mesh:setDrawRange( 1, #tab )
 	love.graphics.draw( mesh )
-	mesh:release()
 end
 
 function api.polygonline(...)
@@ -2912,6 +2909,29 @@ function api.readFile(filename)
 		return contents
 	end
 	return nil
+end
+
+function api.manualGC(time_budget, memory_ceiling, disable_otherwise)
+	time_budget = time_budget or 1e-3
+	memory_ceiling = memory_ceiling or math.huge
+	local max_steps = 1000
+	local steps = 0
+	local start_time = love.timer.getTime()
+	while
+		love.timer.getTime() - start_time < time_budget and
+		steps < max_steps
+	do
+		collectgarbage("step", 1)
+		steps = steps + 1
+	end
+	--safety net
+	if collectgarbage("count") / 1024 > memory_ceiling then
+		collectgarbage("collect")
+	end
+	--don't collect gc outside this margin
+	if disable_otherwise then
+		collectgarbage("stop")
+	end
 end
 
 api.lognl = io.write
