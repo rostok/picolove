@@ -219,7 +219,7 @@ function _loadCART(_cartname)
 	if type(_cartname) ~= "string" then
 		return false
 	end
-
+	io.write("\27[2J\27c\27[H") -- clear screen/terminal
 	local exts = { "", ".p8", ".p8.png", ".png" }
 	local cart_no_ext = _cartname
 
@@ -496,7 +496,19 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 }]]
 
 	-- blue noise dithering
-	local blueNoise = love.graphics.newImage("bluenoise.png")
+	local blueNoiseData = love.image.newImageData("bluenoise.png")
+	local blueNoise = love.graphics.newImage(blueNoiseData)
+	-- load into pico8 table
+    local width, height = blueNoiseData:getDimensions()
+    pico8.blueNoise = {}
+    for y = 0, height - 1 do
+        pico8.blueNoise[y] = {}
+        for x = 0, width - 1 do 
+			local r,b,g,a = blueNoiseData:getPixel(x, y)
+			pico8.blueNoise[y][x] = r 
+		end
+    end
+
 	local draw_shader = [[
 		extern float threshold = 0; // alpha dithering level 0.0-1.0, 0 fully opaque, 1 fully transparent
 		extern int viewx = 0;
@@ -515,7 +527,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 			float vz = texture_coords.y; // vertex z value
 			float cz = z;
 			if (isNaN(z)||isInf(z)) cz = vz;
-			gl_FragDepth = unlerp( viewy+viewh*2, viewy-viewh*2, cz ); // extend view so 0..1 of z is below and benath of visible area
+			gl_FragDepth = unlerp( viewy+viewh*1.5, viewy-viewh*1.5, cz ); // extend view so 0..1 of z is below and benath of visible area
 			//gl_FragDepth = clamp(gl_FragDepth,0.0,1.0);
 			int index = int(color.r*15.0+0.5);
 			float a = 1.0;
