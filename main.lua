@@ -3,9 +3,9 @@ love.filesystem.setRequirePath(package.path)
 
 profile = require("profile")
 
-local debugserver = nil
--- local debugserver = require("debugserver")
--- debugserver.startServer(1234) -- Replace with your desired port number
+-- local debugserver = nil
+local debugserver = require("debugserver")
+debugserver.startServer(1234) -- Replace with your desired port number
 
 print("picolove hello @ ".._VERSION.." & Love2D "..table.concat({love.getVersion()},"."))
 require("strict")
@@ -273,10 +273,10 @@ function _loadPURELUA(cartname)
 	pico8.cart = new_sandbox()
 	pico8.cart.dofileLUA = dofile
 	pico8.cart.dofile = function (filename)
-		success("----------------------")
-		success("----------------------")
-		success("----------------------")
-		success("----------------------")
+		warning("----------------------")
+		warning("----------------------")
+		warning("----------------------")
+		warning("----------------------")
 		warning("loading "..filename)
         local file = love.filesystem.newFile(filename, "r")
 		if file then
@@ -1370,9 +1370,19 @@ function love.run()
 
 		-- debug server message handling, note that it can be uninitialized
 		if debugserver then
-			local message = debugserver.receive()
-			if message~="" then
-				print("Received message: " .. message)
+			local msg = debugserver.receive()
+			if msg~="" and msg~=nil then
+				if msg == "restart" then
+					log('reloading cart')
+					if rawget(_G, 'jit') then jit.on() end -- turn on jit in case we hit jit off mode
+					collectgarbage()
+					api.reload_cart()
+					api.run()
+				elseif pico8.cart.game then
+					pico8.cart.game.command(msg)
+				else
+					print("[debugserver] received unknown message: " .. (msg or "nil"))
+				end
 			end
 		end
 			
@@ -1574,7 +1584,6 @@ end
 function profileReport(counter, filename, depth)
 	if counter>=0 then api.lognl("PROFILING ",counter,"  \r") end
 	if counter == 0 then
-		local json = profile.tracingJSON()
 		local report = profile.report(depth or 30)
 		report = add_code_to_traceback(report)
 
@@ -1584,7 +1593,7 @@ function profileReport(counter, filename, depth)
 		-- log(report)
 		profile.reset()
 		api.writeFile(filename, report)
-		api.writeFile(filename:gsub(".txt",".json"), json)
+		-- api.writeFile(filename:gsub(".txt",".json"), profile.tracingJSON())
 		api.writeFile(filename:gsub(".txt",".html"), html)
 
 		-- set tab separated clipboard
