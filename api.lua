@@ -21,6 +21,7 @@ local api = {}
 
 local flr = math.floor
 api.math = math
+api.string = string
 api.tonumber = tonumber
 api.love = love
 api.bit = bit
@@ -115,6 +116,7 @@ function api._picolove()
 		timer=love.timer,
 		pico8=pico8,
 		love=love,
+		loaded_code=loaded_code,
 		load=function (code) local f = load(code) setfenv(f,pico8.cart) return f() end
 	}
 end
