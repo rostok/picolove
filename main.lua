@@ -7,6 +7,7 @@ profile = require("profile")
 local debugserver = require("debugserver")
 debugserver.startServer(1234) -- Replace with your desired port number
 
+io.write("\27[2J\27c\27[H") -- clear screen/terminal
 print("picolove hello @ ".._VERSION.." & Love2D "..table.concat({love.getVersion()},"."))
 require("strict")
 local QueueableSource = require("QueueableSource")
@@ -219,7 +220,7 @@ function _loadCART(_cartname)
 	if type(_cartname) ~= "string" then
 		return false
 	end
-	io.write("\27[2J\27c\27[H") -- clear screen/terminal
+	-- io.write("\27[2J\27c\27[H") -- clear screen/terminal
 	local exts = { "", ".p8", ".p8.png", ".png" }
 	local cart_no_ext = _cartname
 
@@ -1219,12 +1220,7 @@ function love.keypressed(key)
 			log('no active recording')
 		end
 	elseif key == "return" and isAltDown() then
-		local canvas=love.graphics.getCanvas()
-		love.graphics.setCanvas()
-		love.window.setFullscreen(not love.window.getFullscreen(), "desktop")
-		--for some reason this isn't called when fullscreen is unset
-		love.resize(love.graphics.getWidth(), love.graphics.getHeight())
-		love.graphics.setCanvas(canvas)
+		api._toggleFullScreen();
 		return
 	else
 		for p = 0, 1 do
@@ -1668,7 +1664,7 @@ function loadWindowState()
         log("window state", x, y, width, height, flags.display, state.display)
         love.graphics.setCanvas()
 		local dw,dh = love.window.getDesktopDimensions( flags.display )
-		flags.x,flags.y = math.min(x,dw-width),math.min(y,dh-height-32)
+		flags.x,flags.y = math.min(x,dw-width),math.min(y,dh-height)
         window.setMode(width, height, flags)
 		love.graphics.present()
     end

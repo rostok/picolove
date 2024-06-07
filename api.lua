@@ -98,6 +98,17 @@ function api._profileReport(counter, filename, depth)
 	profileReport(counter, filename, depth)
 end
 
+-- toggles, or if state is set, sets fullscreen
+function api._toggleFullScreen(state)
+	if state==nil then state = not love.window.getFullscreen() end
+	local canvas=love.graphics.getCanvas()
+	love.graphics.setCanvas()
+	love.window.setFullscreen(state, "desktop")
+	--for some reason this isn't called when fullscreen is unset
+	love.resize(love.graphics.getWidth(), love.graphics.getHeight())
+	love.graphics.setCanvas(canvas)
+end
+
 -- collect garbage shiv
 function api.collectgarbage(opt,arg)
 	return collectgarbage(opt,arg)
@@ -2209,6 +2220,8 @@ function api.rnd(x)
 	-- end
 end
 
+-- api.rnd = love.math.random
+
 function api.srand(seed)
 	seed=seed or 0 -- rostok: optimize for speed tonumber(seed)
 	if seed == 0 then
@@ -2376,7 +2389,8 @@ function api.run()
 end
 
 function api.stop(message, x, y, col) -- luacheck: no unused
-	-- TODO: implement this
+	print(message)
+	love.event.quit() 
 end
 
 function api.reboot()
