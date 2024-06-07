@@ -366,11 +366,11 @@ function profile.stop()
       lookup[id] = f
     end
   end
-  collectgarbage('collect')
   -- enable JIT if avaialbe
   if rawget(_G, 'jit') then
     jit.on()
   end
+  collectgarbage('collect')
 end
 
 --- Resets all collected data.
