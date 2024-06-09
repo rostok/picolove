@@ -2454,7 +2454,7 @@ function api.help()
 end
 
 function api.time()
-	return pico8.frames/30
+	return pico8.frames/(pico8.fps or 30)
 end
 api.t = api.time
 
@@ -2509,6 +2509,8 @@ function api.isDown(...)
 			elseif arg=="mouse3" and love.mouse.isDown(3) then return true 
 			elseif arg=="mouse4" and love.mouse.isDown(4) then return true 
 			elseif arg=="mouse5" and love.mouse.isDown(5) then return true end
+		elseif arg=="shift" then
+			if pico8.keys["lshift"] or pico8.keys["rshift"] then return true end
 		elseif pico8.keys[arg] then return true end
 	end
 	return false
