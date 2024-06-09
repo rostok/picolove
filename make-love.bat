@@ -10,7 +10,7 @@ call shrinko8 --input-count --no-minify-spaces --no-minify-lines --no-minify-ren
 :: then 
 :: luamin -f code_patched.lua  > code_patched_min.lua 
 7z a -r -tzip schifahren.love -xr!trash -xr!pico8 *.lua *.p8 *.png 
-7z a -r -tzip schifahren.love pico8\map*.lua pico8\resources
+7z a -r -tzip schifahren.love pico8\map*.lua pico8\resources\sfx
 copy /b %love% + schifahren.love schifahren.exe
 7z a schifahren.7z schifahren.exe "C:\Program Files\LOVE\*.dll" 
 move schifahren.love release\love
