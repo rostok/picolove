@@ -1401,7 +1401,7 @@ function love.run()
 				timeLeft = 1.0/pico8.frameLimiter - (love.timer.getTime()-limiter_time)
 				love.timer.sleep( timeLeft ) 
 			else
-				love.timer.sleep(0.001)
+				love.timer.sleep(0.000001)
 			end
 		end
 	end
@@ -1661,7 +1661,7 @@ function loadWindowState()
         flags.display = flags.display or 1
         flags.minwidth = flags.minwidth or 480
         flags.minheight = flags.minheight or 270
-        log("window state", x, y, width, height, flags.display, state.display)
+        -- log("window state", x, y, width, height, flags.display, state.display)
         love.graphics.setCanvas()
 		local dw,dh = love.window.getDesktopDimensions( flags.display )
 		flags.x,flags.y = math.min(x,dw-width),math.min(y,dh-height)
