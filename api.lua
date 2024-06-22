@@ -2511,6 +2511,10 @@ function api.isDown(...)
 			elseif arg=="mouse5" and love.mouse.isDown(5) then return true end
 		elseif arg=="shift" then
 			if pico8.keys["lshift"] or pico8.keys["rshift"] then return true end
+		elseif arg=="alt" then
+			if pico8.keys["lalt"] or pico8.keys["ralt"] then return true end
+		elseif arg=="ctrl" then
+			if pico8.keys["lctrl"] or pico8.keys["rctrl"] then return true end
 		elseif pico8.keys[arg] then return true end
 	end
 	return false
@@ -2932,18 +2936,20 @@ end
 function api.manualGC(time_budget, memory_ceiling, disable_otherwise)
 	time_budget = time_budget or 1e-3
 	memory_ceiling = memory_ceiling or math.huge
-	local max_steps = 1000
+	local max_steps = 10000
 	local steps = 0
 	local start_time = love.timer.getTime()
 	while
-		love.timer.getTime() - start_time < time_budget and
-		steps < max_steps
+	love.timer.getTime() - start_time < time_budget and
+	steps < max_steps
 	do
 		collectgarbage("step", 1)
 		steps = steps + 1
 	end
+	-- log(time_budget,steps)
 	--safety net
-	if collectgarbage("count") / 1024 > memory_ceiling then
+	if memory_ceiling~=math.huge and collectgarbage("count") / 1024 > memory_ceiling then
+		-- log("collect")
 		collectgarbage("collect")
 	end
 	--don't collect gc outside this margin
@@ -2951,6 +2957,9 @@ function api.manualGC(time_budget, memory_ceiling, disable_otherwise)
 		collectgarbage("stop")
 	end
 end
+
+local ok
+ok,api.table_clear = pcall(require, "table.clear")
 
 api.lognl = io.write
 

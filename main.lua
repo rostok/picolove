@@ -126,7 +126,7 @@ pico8 = {
 }
 api.__pico8 = pico8
 pico8_glyphs = { [0] = "\0",
-	"¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "\t", "\n", "ᵇ",
+	"¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "\b", "\t", "\n", "ᵇ", -- \b or 8 ⁸ replaced with empty
 	"ᶜ", "\r", "ᵉ", "ᶠ", "▮", "■", "□", "⁙", "⁘", "‖", "◀",
 	"▶", "「", "」", "¥", "•", "、", "。", "゛", "゜", " ", "!",
 	"\"", "#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/", "0",
@@ -156,7 +156,8 @@ glyph_edgecases = {
 	["🅾️"] = "🅾",
 	["➡️"] = "➡",
 	["⬆️"] = "⬆",
-	["⬅️"] = "⬅"
+	["⬅️"] = "⬅",
+	["\b"] = "",
 }
 
 local flr, abs = math.floor, math.abs
@@ -1388,7 +1389,8 @@ function love.run()
 
 				-- https://love2d.org/forums/viewtopic.php?p=254778
 				
-				api.manualGC(timeLeft,4096)
+				api.manualGC(timeLeft,1024*4)
+				-- api.manualGC(timeLeft,1024*16)
 
 				-- local start = love.timer.getTime()
 				-- for i = 1, 1000 do
