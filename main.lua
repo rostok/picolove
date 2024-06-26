@@ -149,6 +149,7 @@ pico8_glyphs = { [0] = "\0",
 	"ラ", "リ", "ル", "レ", "ロ", "ワ", "ヲ", "ン", "ッ", "ャ", "ュ",
 	"ョ", "◜", "◝"
 }
+api.pico8_glyphs = pico8_glyphs
 
 -- switch 2 utf-8 character glyphs with the respective 1 character alternative
 glyph_edgecases = {
@@ -159,6 +160,7 @@ glyph_edgecases = {
 	["⬅️"] = "⬅",
 	["\b"] = "",
 }
+api.glyph_edgecases = glyph_edgecases
 
 local flr, abs = math.floor, math.abs
 
@@ -429,9 +431,7 @@ function love.load(argv)
 
 	pico8.screen:setFilter("linear", "nearest")
 
-	local font = love.graphics.newImageFont("font.png", glyphs, 1)
-	love.graphics.setFont(font)
-	font:setFilter("nearest", "nearest")
+	api._font(1)
 
 	love.mouse.setVisible(false)
 	love.keyboard.setKeyRepeat(true)

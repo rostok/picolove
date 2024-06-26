@@ -220,8 +220,10 @@ function api.clip(x, y, w, h)
 		love.graphics.setScissor(x, y, w, h)
 		pico8.clip = { x, y, w, h }
 	else
-		love.graphics.setScissor(0, 0, pico8.resolution[1], pico8.resolution[2])
-		pico8.clip = { 0, 0, pico8.resolution[1], pico8.resolution[2] }
+		-- love.graphics.setScissor(0, 0, pico8.resolution[1], pico8.resolution[2])
+		-- pico8.clip = { 0, 0, pico8.resolution[1], pico8.resolution[2] }
+		love.graphics.setScissor()
+		pico8.clip = nil
 	end
 end
 
@@ -568,6 +570,41 @@ local function tostring(str)
 	--return (tostring_org(str):gsub("[^%z\32-\127]", "8"))
 end
 
+function api._font(num)
+	local font, glyphs
+
+	num = num or 0
+	if num>2 then num = 0 end
+	if num==0 then -- 3x5
+		glyphs=""
+		for i=32, 153 do glyphs=glyphs..(api.glyph_edgecases[api.pico8_glyphs[i]] or api.pico8_glyphs[i]) end
+		font = love.graphics.newImageFont("font.png", glyphs, 1)
+		api.GLYPH_W = 4
+		api.GLYPH_H = 6
+		api.GLYPH_FONT = 0
+	elseif num==1 then -- 4x5
+		glyphs = {}
+		for i=1,127 do glyphs[i] = string.char(i) end
+		glyphs = table.concat(glyphs)
+		font = love.graphics.newImageFont("font4x6.png", glyphs, 1)
+		api.GLYPH_W = 5
+		api.GLYPH_H = 6
+		api.GLYPH_FONT = 1
+	elseif num==2 then -- 4x6
+		font = love.graphics.newFont("unnamed-4x6.ttf", 6)
+		api.GLYPH_W = 5
+		api.GLYPH_H = 7
+		api.GLYPH_FONT = 2
+	end
+
+	love.graphics.setFont(font)
+	font:setFilter("nearest", "nearest")
+end
+
+function api._glyphSize()
+	return api.GLYPH_W,api.GLYPH_H,api.GLYPH_FONT
+end
+
 function api.print(...)
 	--TODO: support printing special pico8 chars
 
@@ -576,6 +613,7 @@ function api.print(...)
 		return
 	end
 
+	local fw,fh = api._glyphSize()
 	local x = nil
 	local y = nil
 	local col = nil
@@ -597,7 +635,7 @@ function api.print(...)
 	local canscroll = y == nil
 	if y == nil then
 		y = pico8.cursor[2]
-		pico8.cursor[2] = pico8.cursor[2] + 6
+		pico8.cursor[2] = pico8.cursor[2] + fh
 	end
 	if x == nil then
 		x = pico8.cursor[1]
@@ -606,9 +644,9 @@ function api.print(...)
 		local c = col or pico8.color
 		scroll(6)
 		y = pico8.resolution[2]-8 -- 120
-		api.rectfill(0, y, pico8.resolution[2]-1, y + 6, 0) -- 127
+		api.rectfill(0, y, pico8.resolution[2]-1, y + fh, 0) -- 127
 		api.color(c)
-		api.cursor(0, y + 6)
+		api.cursor(0, y + fh)
 	end
 	local to_print = tostring(api.tostr(str))
 
@@ -626,8 +664,8 @@ function api.print(...)
 	str = to_print
 	local maxLineLength = 0
 	for line in str:gmatch("[^\n]+") do maxLineLength = math.max(maxLineLength, #line) end
-	local newX = x + maxLineLength * 4
-	local newY = y + (1+select(2, str:gsub("\n", "\n"))) * 6
+	local newX = x + maxLineLength * fw
+	local newY = y + (1+select(2, str:gsub("\n", "\n"))) * fh
 	return newX, newY
 end
 
@@ -718,6 +756,8 @@ function api.ord(...)
 
 	return nil
 end
+
+api.tostring = tostring
 
 function api.tostr(...)
 	if select("#", ...) == 0 then
