@@ -577,15 +577,14 @@ function api._font(num)
 	if num>2 then num = 0 end
 	if num==0 then -- 3x5
 		glyphs=""
-		for i=32, 153 do glyphs=glyphs..(api.glyph_edgecases[api.pico8_glyphs[i]] or api.pico8_glyphs[i]) end
+		for i=32,153 do glyphs=glyphs..(api.glyph_edgecases[api.pico8_glyphs[i]] or api.pico8_glyphs[i]) end
 		font = love.graphics.newImageFont("font.png", glyphs, 1)
 		api.GLYPH_W = 4
 		api.GLYPH_H = 6
 		api.GLYPH_FONT = 0
 	elseif num==1 then -- 4x5
-		glyphs = {}
-		for i=1,127 do glyphs[i] = string.char(i) end
-		glyphs = table.concat(glyphs)
+		glyphs=""
+		for i=32,127 do glyphs=glyphs..string.char(i) end
 		font = love.graphics.newImageFont("font4x6.png", glyphs, 1)
 		api.GLYPH_W = 5
 		api.GLYPH_H = 6

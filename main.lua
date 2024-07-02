@@ -3,12 +3,12 @@ love.filesystem.setRequirePath(package.path)
 
 profile = require("profile")
 
--- local debugserver = nil
-local debugserver = require("debugserver")
-debugserver.startServer(1234) -- Replace with your desired port number
 
 io.write("\27[2J\27c\27[H") -- clear screen/terminal
 print("picolove hello @ ".._VERSION.." & Love2D "..table.concat({love.getVersion()},"."))
+-- local debugserver = nil
+local debugserver = require("debugserver")
+debugserver.startServer(1234) -- Replace with your desired port number
 require("strict")
 local QueueableSource = require("QueueableSource")
 
@@ -1091,7 +1091,7 @@ function love.keypressed(key)
 		log("F4 / Ctrl9  - end gif recording")
 		log("F5          - restart")
 		log("F7          - load window state")
-		log("F7+Ctrl     - save window state")
+		log("F7+Ctrl     - switch pos and save window state")
 		log("F9          - profile update")
 		log("F9+Ctrl     - profile draw")
 		log("F9+Alt      - profile special")
@@ -1114,10 +1114,12 @@ function love.keypressed(key)
 		love.graphics.setCanvas()
 		width =  pico8.resolution[1]*pico8.resolution[3]
 		height = pico8.resolution[2]*pico8.resolution[3]
-		if flags.display<=1 then
+		if flags.display<=1 and love.window.getDisplayCount()>1 then
 			x,y,d,width,height = 1,1378,2,1078,540
-		else	
-			x,y,d = 1920-pico8.resolution[1]*pico8.resolution[3],1,1
+		else
+			d = 1
+			local dwidth, dheight = love.window.getDesktopDimensions( d )	
+			x,y = dwidth-pico8.resolution[1]*pico8.resolution[3],1
 		end
 		love.window.setMode(width,height,{x=x,y=y,display=d})
 		saveWindowState()

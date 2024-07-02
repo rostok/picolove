@@ -255,7 +255,7 @@ function cart.load_p8(filename)
 
 		local header_start = data:find(header)
 		if header_start == nil then
-			error("invalid cart (missing header)")
+			error("invalid cart (missing header), filename:"..filename)
 		end
 
 		local header_end = data:find(version_header, header_start + header_len)
