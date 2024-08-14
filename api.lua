@@ -109,6 +109,10 @@ function api._toggleFullScreen(state)
 	love.graphics.setCanvas(canvas)
 end
 
+function api._togglePixelPerfect()
+	pixelperfect = not pixelperfect
+end	
+
 -- collect garbage shiv
 function api.collectgarbage(opt,arg)
 	return collectgarbage(opt,arg)
@@ -671,7 +675,9 @@ end
 api.printh = print
 api.io = io
 api.loadstring = loadstring
--- api.dofile = dofile
+api.dofile = dofile
+api.load = load
+api.pcall = pcall
 
 function api.cursor(x, y, col)
 	if col then
@@ -2354,7 +2360,7 @@ function api.rotr(x, y)
 	return bit.ror(x*0x10000, y)/0x10000
 end
 
-function api.load(filename)
+function api.loadcart(filename)
 	local hasloaded = _load(filename)
 	if hasloaded then
 		love.window.setTitle(string.upper(cartname) .. " (PICOLÖVE)")
@@ -2362,8 +2368,37 @@ function api.load(filename)
 	return hasloaded
 end
 
-function api.save()
+function api.savecart()
 	-- TODO: implement this
+end
+
+-- evaluate single lua expression in cart context
+function api.eval(code)
+    local function is_single_expression(code)
+        -- A simple heuristic to check if the code is a single expression
+        local func, err = loadstring("return " .. code, "api.eval")
+        if not func then
+            -- If wrapping in return fails, it's likely not a single expression
+            return false
+        end
+        return true
+    end
+
+	code = code or "nil"
+
+    if is_single_expression(code) then
+        code = "return " .. code
+    else
+        code = code
+    end
+	
+	local f, err = loadstring(code,"api.eval")
+    if not f then
+		print("eval error:"..(err or "nil"))
+        return nil
+    end
+	setfenv(f,pico8.cart)
+	return f()
 end
 
 function api.run()
@@ -2391,9 +2426,9 @@ function api.run()
 
 	local ok, f, e = pcall(load, loaded_code, cartname)
 	if not ok or f == nil then
-		log("=======8<========")
-		log(loaded_code)
-		log("=======>8========")
+		-- log("=======8<========")
+		-- log(loaded_code)
+		-- log("=======>8========")
 		error("Error loading lua: " .. tostring(e))
 	else
 		setfenv(f, pico8.cart)

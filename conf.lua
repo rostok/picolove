@@ -1,6 +1,7 @@
 -- love 11.4 uses lua 5.1
 __picolove_version = "0.1.1"
 
+pixelperfect = false
 scale = 2
 xpadding = 0
 ypadding = 0

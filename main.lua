@@ -809,7 +809,11 @@ function love.draw()
 	__profiling.R = profileReport(__profiling.R, "profileR.txt", 30)
 
 	-- draw the contents of pico screen to our screen
-	flip_screen()
+	if pixelperfect then
+		flip_screen_pixelperfect()
+	else
+		flip_screen()
+	end
 end
 
 function restore_camera()
@@ -883,6 +887,54 @@ function flip_screen()
 	api.setPicoCanvas()
 	restore_clip()
 	restore_camera()
+end
+
+function flip_screen_pixelperfect()
+    love.graphics.setShader(pico8.display_shader)
+    love.graphics.setCanvas()
+    love.graphics.origin()
+    love.graphics.setScissor()
+
+    love.graphics.setBackgroundColor(3/255, 5/255, 10/255)
+    love.graphics.clear()
+
+    -- Get the dimensions of the LOVE window
+    local window_w, window_h = love.graphics.getDimensions()
+    
+    -- Determine the maximum integer scale that keeps the pixel-perfect ratio
+    local scale_x = math.floor(window_w / pico8.resolution[1])
+    local scale_y = math.floor(window_h / pico8.resolution[2])
+    local scale = math.min(scale_x, scale_y)
+
+    -- Calculate the dimensions of the scaled pico8 screen
+    local pico8_w, pico8_h = pico8.resolution[1] * scale, pico8.resolution[2] * scale
+
+    -- Calculate the offsets to center the scaled pico8 screen
+    local x_offset = (window_w - pico8_w) / 2
+    local y_offset = (window_h - pico8_h) / 2
+
+    -- Draw the scaled pico8 screen centered on the LOVE display
+    love.graphics.draw(pico8.screen, x_offset, y_offset, 0, scale, scale)	
+	
+	-- Optionally draw the zbuffer
+	-- love.graphics.setShader(pico8.depthView)
+	-- pico8.depthView:send("depth",pico8.depth)
+    -- love.graphics.draw(pico8.depth, x_offset, y_offset, 0, scale, scale)	
+
+    love.graphics.present()
+
+    if gif_canvas then
+        love.graphics.setCanvas(gif_canvas)
+        love.graphics.draw(pico8.screen, 0, 0, 0) -- no scaling ..., 2, 2
+        love.graphics.setCanvas()
+        gif_recording:frame(gif_canvas:newImageData())
+    end
+
+    -- get ready for next time
+    love.graphics.setShader(pico8.draw_shader)
+    api.setPicoCanvas()
+    restore_clip()
+    restore_camera()
 end
 
 function love.focus(f)
@@ -1086,20 +1138,21 @@ end
 
 function love.keypressed(key)
 	if key == "f1" then 
-		log("F1          - help")
-		log("F3 / Ctrl8  - start gif recording")
-		log("F4 / Ctrl9  - end gif recording")
-		log("F5          - restart")
-		log("F7          - load window state")
-		log("F7+Ctrl     - switch pos and save window state")
-		log("F9          - profile update")
-		log("F9+Ctrl     - profile draw")
-		log("F9+Alt      - profile special")
-		log("F9+Ctrl+Alt - profile render")
-		log("Ctrl+R      - reload")
-		log("Ctrl+Q      - quit")
-		log("Alt+Enter   - full screen")
-		log("PrtScr      - screenshot")
+		log("F1          	- help")
+		log("F3 / Ctrl8  	- start gif recording")
+		log("F4 / Ctrl9  	- end gif recording")
+		log("F5          	- restart")
+		log("F7          	- load window state")
+		log("F7+Ctrl     	- switch pos and save window state")
+		log("F9          	- profile update")
+		log("F9+Ctrl     	- profile draw")
+		log("F9+Alt      	- profile special")
+		log("F9+Ctrl+Alt 	- profile render")
+		log("Ctrl+R      	- reload")
+		log("Ctrl+Q      	- quit")
+		log("Alt+Enter   	- full screen")
+		log("Ctrl+Alt+Enter - toggle pixel perfect")
+		log("PrtScr         - screenshot")
 	elseif key == "r" and isCtrlOrGuiDown() and not isAltDown() then -- ctrl+r
 		log('reloading cart')
 		api.reload_cart()
@@ -1182,7 +1235,7 @@ function love.keypressed(key)
 		and cartname ~= "nocart.p8"
 		and cartname ~= "editor.p8"
 	then
-		api.load(initialcartname)
+		api.loadcart(initialcartname)
 		api.run()
 		return
 	elseif key == "q" and isCtrlOrGuiDown() and not isAltDown() then
@@ -1222,8 +1275,11 @@ function love.keypressed(key)
 		else
 			log('no active recording')
 		end
-	elseif key == "return" and isAltDown() then
-		api._toggleFullScreen();
+	elseif key == "return" and isAltDown() and not isCtrlOrGuiDown() then
+		api._toggleFullScreen()
+		return
+	elseif key == "return" and isAltDown() and isCtrlOrGuiDown() then
+		api._togglePixelPerfect()
 		return
 	else
 		for p = 0, 1 do
