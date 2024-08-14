@@ -910,8 +910,8 @@ function flip_screen_pixelperfect()
     local pico8_w, pico8_h = pico8.resolution[1] * scale, pico8.resolution[2] * scale
 
     -- Calculate the offsets to center the scaled pico8 screen
-    local x_offset = (window_w - pico8_w) / 2
-    local y_offset = (window_h - pico8_h) / 2
+    local x_offset = math.floor((window_w - pico8_w) / 2)
+    local y_offset = math.floor((window_h - pico8_h) / 2)
 
     -- Draw the scaled pico8 screen centered on the LOVE display
     love.graphics.draw(pico8.screen, x_offset, y_offset, 0, scale, scale)	
