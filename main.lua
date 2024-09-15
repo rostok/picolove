@@ -1173,6 +1173,11 @@ function love.keypressed(key)
 			d = 1
 			local dwidth, dheight = love.window.getDesktopDimensions( d )	
 			x,y = dwidth-pico8.resolution[1]*pico8.resolution[3],1
+			if pico8.resolution[1]==1920 and pico8.resolution[2]==1080 then
+				width =  pico8.resolution[1]
+				height = pico8.resolution[2]
+				x,y = dwidth-pico8.resolution[1],1
+			end
 		end
 		love.window.setMode(width,height,{x=x,y=y,display=d})
 		saveWindowState()
@@ -1350,6 +1355,26 @@ end
 	-- love.graphics.rectangle("fill", x, y, 1, 1)
 -- end
 
+function debugserverUpdate()
+	if debugserver then
+		local msg = debugserver.receive()
+		if msg~="" and msg~=nil then
+			if msg == "restart" then
+				love.event.quit( "restart" )
+				-- log('reloading cart')
+				-- if rawget(_G, 'jit') then jit.on() end -- turn on jit in case we hit jit off mode
+				-- collectgarbage()
+				-- api.reload_cart()
+				-- api.run()
+			elseif pico8.cart.game then
+				pico8.cart.game.command(msg)
+			else
+				print("[debugserver] received unknown message: " .. (msg or "nil"))
+			end
+		end
+	end
+end
+
 function love.run()
 	if love.load then
 		love.load(love.arg.parseGameArguments(arg), arg)
@@ -1424,22 +1449,7 @@ function love.run()
 		end
 
 		-- debug server message handling, note that it can be uninitialized
-		if debugserver then
-			local msg = debugserver.receive()
-			if msg~="" and msg~=nil then
-				if msg == "restart" then
-					log('reloading cart')
-					if rawget(_G, 'jit') then jit.on() end -- turn on jit in case we hit jit off mode
-					collectgarbage()
-					api.reload_cart()
-					api.run()
-				elseif pico8.cart.game then
-					pico8.cart.game.command(msg)
-				else
-					print("[debugserver] received unknown message: " .. (msg or "nil"))
-				end
-			end
-		end
+		debugserverUpdate()
 			
 		if love.timer then
 			if pico8.frameLimiter>0 then 
@@ -1596,7 +1606,7 @@ function love.errorhandler(msg)
 
 		for e, a, b, c in love.event.poll() do
 			if e == "quit" then
-				return 1
+				return a or 1
 			elseif e == "keypressed" and a == "escape" then
 				return 1
 			elseif e == "keypressed" and a == "c" and love.keyboard.isDown("lctrl", "rctrl") then -- ctrl+c
@@ -1625,6 +1635,9 @@ function love.errorhandler(msg)
 				end
 			end
 		end
+
+		-- debug server message handling, note that it can be uninitialized
+		debugserverUpdate()
 
 		draw()
 
