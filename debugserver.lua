@@ -4,7 +4,6 @@ local debugserver = {}
 local server
 local msgParser = function(msg)
     -- Default message parser function
-    print("[debugserver] got " .. msg)
 end
 
 function debugserver.startServer(portNumber, hookFn)
