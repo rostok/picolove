@@ -785,7 +785,8 @@ function love.update(_)
 	__profiling.S = profileReport(__profiling.S, "profileS.txt", 30)
 
 	-- copy current frame keys to last frame keys, this must be AFTER update function
-	pico8.last_keys = {}
+	-- pico8.last_keys = {}
+	api.table_clear(pico8.last_keys)
 	for k, v in pairs(pico8.keys) do
 		pico8.last_keys[k] = v
 	end	
@@ -1367,7 +1368,8 @@ function debugserverUpdate()
 				-- api.reload_cart()
 				-- api.run()
 			elseif pico8.cart.game then
-				pico8.cart.game.command(msg)
+				local a = pico8.cart.game.command(msg)
+				-- if a~=nil then pico8.cart.success(a) end
 			else
 				print("[debugserver] received unknown message: " .. (msg or "nil"))
 			end
