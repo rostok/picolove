@@ -19,6 +19,12 @@ local api = {}
 -- check horizontal lines
 -- adjust remaining graphics functions like rect rectfill circ circfill oval ovalfill
 
+local ok
+ok,table_clear = pcall(require, "table.clear")
+api.table_clear = table_clear
+
+local __tempPointsTable = {}
+
 local flr = math.floor
 api.math = math
 api.string = string
@@ -29,6 +35,7 @@ api.debug = debug
 api.os = os
 api.serpent = require("serpent")
 api.gifpic = require("gifpic")
+api.ffi = require("ffi")
 
 local function color(c)
 	if c ~= pico8.color then -- rostok: skip if this is current color
@@ -515,7 +522,7 @@ function api.pset(x, y, col)
 end
 
 function api.psets(col,...)
-	if col and col ~= pico8.color then color(col) end -- rostok: skip color if same
+	if col ~= pico8.color then color(col) end -- rostok: skip color if same
 	love.graphics.points(...)
 end
 
@@ -1057,7 +1064,8 @@ function api.circ(ox, oy, r, col)
 	ox = flr(ox)-- + 1 -- rostok, making top-left pixel 1,1 not 0,0
 	oy = flr(oy)-- + 1 -- rostok, making top-left pixel 1,1 not 0,0
 	r = flr(r)
-	local points = {}
+	local points = __tempPointsTable
+	table_clear(points)
 	local x = r
 	local y = 0
 	local decisionOver2 = 1 - x
@@ -1209,7 +1217,7 @@ function api.rotovalfill(a, x0, y0, x1, y1, col)
     love.graphics.pop()
 end
 
--- the original line picolove implementation but with variable parameter coords
+-- the original line picolove implementation but with variable parameter coords (uses table and points)
 function api.line0(x0, y0, x1, y1, col)
 	if col then
 		color(col)
@@ -1259,25 +1267,30 @@ function api.line0(x0, y0, x1, y1, col)
 	local dy = y1 - y0
 	local stepx, stepy
 
-	local points = { { x0, y0 } }
+	local points = __tempPointsTable
+	table_clear(points)
+	points[#points+1]=x0
+	points[#points+1]=y0
 
 	if dx == 0 then
 		-- simple case draw a vertical line
-		points = {}
-		if y0 > y1 then
+		table_clear(points)
+  	    if y0 > y1 then
 			y0, y1 = y1, y0
 		end
 		for y = y0, y1 do
-			table.insert(points, { x0, y })
+			points[#points+1]=x0
+			points[#points+1]=y
 		end
 	elseif dy == 0 then
 		-- simple case draw a horizontal line
-		points = {}
+		table_clear(points)
 		if x0 > x1 then
 			x0, x1 = x1, x0
 		end
 		for x = x0, x1 do
-			table.insert(points, { x, y0 })
+			points[#points+1]=x
+			points[#points+1]=y0
 		end
 	else
 		if dy < 0 then
@@ -1303,8 +1316,9 @@ function api.line0(x0, y0, x1, y1, col)
 				end
 				x0 = x0 + stepx
 				fraction = fraction + dy
-				table.insert(points, { flr(x0), flr(y0) })
-			end
+				points[#points+1]=flr(x0)
+				points[#points+1]=flr(y0)
+				end
 		else
 			local fraction = dx - bit.rshift(dy, 1)
 			while y0 ~= y1 do
@@ -1314,7 +1328,8 @@ function api.line0(x0, y0, x1, y1, col)
 				end
 				y0 = y0 + stepy
 				fraction = fraction + dx
-				table.insert(points, { flr(x0), flr(y0) })
+				points[#points+1]=flr(x0)
+				points[#points+1]=flr(y0)
 			end
 		end
 	end
@@ -1372,7 +1387,10 @@ function api.line1(x0, y0, x1, y1, col)
 	local dy = y1 - y0
 	local stepx, stepy
 
-	local points = { { x0, y0 } }
+	local points = __tempPointsTable
+	table_clear(points)
+	points[#points+1]=x0
+	points[#points+1]=y0
 
 	if dx == 0 then
 		-- simple case draw a vertical line
@@ -1419,7 +1437,8 @@ function api.line1(x0, y0, x1, y1, col)
 				x0 = x0 + stepx
 				fraction = fraction + dy
 				-- table.insert(points, { flr(x0), flr(y0) })
-				points[#points+1] = { flr(x0), flr(y0) }
+				points[#points+1] = flr(x0)
+				points[#points+1] = flr(y0)
 			end
 		else
 			local fraction = dx - bit.rshift(dy, 1)
@@ -1431,7 +1450,8 @@ function api.line1(x0, y0, x1, y1, col)
 				y0 = y0 + stepy
 				fraction = fraction + dx
 				-- table.insert(points, { flr(x0), flr(y0) })
-				points[#points+1] = { flr(x0), flr(y0) }
+				points[#points+1] = flr(x0)
+				points[#points+1] = flr(y0)
 			end
 		end
 	end
@@ -1634,7 +1654,10 @@ function api.line4(x0, y0, x1, y1, col)
 	local dy = y1 - y0
 	local stepx, stepy
 
-	local points = { { x0, y0 } }
+	local points = __tempPointsTable
+	table_clear(points)
+	points[#points+1]=x0
+	points[#points+1]=y0
 
 	if dx == 0 then
 		-- simple case draw a vertical line
@@ -1643,8 +1666,9 @@ function api.line4(x0, y0, x1, y1, col)
 			y0, y1 = y1, y0
 		end
 		for y = y0, y1 do
-			table.insert(points, { x0, y })
-		end
+			points[#points+1]=x0
+			points[#points+1]=y
+				end
 	elseif dy == 0 then
 		-- simple case draw a horizontal line
 		points = {}
@@ -1652,7 +1676,8 @@ function api.line4(x0, y0, x1, y1, col)
 			x0, x1 = x1, x0
 		end
 		for x = x0, x1 do
-			table.insert(points, { x, y0 })
+			points[#points+1]=x
+			points[#points+1]=y0
 		end
 	else
 		if dy < 0 then
@@ -1678,7 +1703,8 @@ function api.line4(x0, y0, x1, y1, col)
 				end
 				x0 = x0 + stepx
 				fraction = fraction + dy
-				table.insert(points, { x0, y0 })
+				points[#points+1]=x0
+				points[#points+1]=y0
 			end
 		else
 			local fraction = dx - bit.rshift(dy, 1)
@@ -1689,7 +1715,8 @@ function api.line4(x0, y0, x1, y1, col)
 				end
 				y0 = y0 + stepy
 				fraction = fraction + dx
-				table.insert(points, { x0, y0 })
+				points[#points+1]=x0
+				points[#points+1]=y0
 			end
 		end
 	end
@@ -1697,6 +1724,13 @@ function api.line4(x0, y0, x1, y1, col)
 end
 
 api.line = api.line0
+
+api.thline = function(thickness,x0,y0,x1,y1,c)
+	love.graphics.setLineWidth(thickness)
+	color(c)
+	love.graphics.line(x0,y0,x1,y1)
+	love.graphics.setLineWidth(1)
+end
 
 function api.polygon(...)
 	love.graphics.polygon("fill",...)
@@ -3013,10 +3047,7 @@ function api.manualGC(time_budget, memory_ceiling, disable_otherwise)
 	local max_steps = 10000
 	local steps = 0
 	local start_time = love.timer.getTime()
-	while
-	love.timer.getTime() - start_time < time_budget and
-	steps < max_steps
-	do
+	while love.timer.getTime() - start_time < time_budget and steps < max_steps do
 		collectgarbage("step", 1)
 		steps = steps + 1
 	end
@@ -3031,9 +3062,6 @@ function api.manualGC(time_budget, memory_ceiling, disable_otherwise)
 		collectgarbage("stop")
 	end
 end
-
-local ok
-ok,api.table_clear = pcall(require, "table.clear")
 
 api.lognl = io.write
 
