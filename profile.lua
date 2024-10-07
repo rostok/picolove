@@ -213,6 +213,7 @@ function profile.flameHTML(dataFile,extraContent)
   <a href=# onclick='scale=500;go();'>500</a>
   <a href=# onclick='scale=1000;go();'>1000</a>
   <a href=# onclick='scale=2000;go();'>2000</a>
+  <a href=# onclick='scale=4000;go();'>4000</a>
   </div>
   ]]..dataScript..[[
   <script>
