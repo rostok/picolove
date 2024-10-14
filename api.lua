@@ -23,6 +23,16 @@ local ok
 ok,table_clear = pcall(require, "table.clear")
 api.table_clear = table_clear
 
+-- this requires jprof library, should be run with run-jprof.bat  and possibly renamed love to xlove as F5 in vscode may terminate love.exe
+-- PROF_CAPTURE = true
+-- api.prof = require("jprof")
+-- api.prof.connect()
+
+-- this requires simple memprof.lua memprof-server.lua with server being run in powershell as cls ; lua C:\projects\lua\schifahren\memprof\memprof-server.lua 
+-- at main there should be api.mprof.push("frame") / api.mprof.pop() sections in love.run
+-- api.mprof = require("memprof") 
+-- api.mprof.init()
+
 local __tempPointsTable = {}
 
 local flr = math.floor
@@ -3025,8 +3035,9 @@ function api.split(str, sep, conv_nums)
 	return tbl
 end
 
-function api.writeFile(name, contents)
-    local file = love.filesystem.newFile(name, "w")
+function api.writeFile(name, contents, mode)
+    mode = mode or "w"
+	local file = love.filesystem.newFile(name, mode)
     file:write(contents)
     file:close()
 end

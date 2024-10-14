@@ -770,6 +770,7 @@ end
 
 
 function love.update(_)
+	-- api.prof.push("frame")
 	pico8.frames=pico8.frames+1
 	update_buttons()
 
@@ -790,9 +791,11 @@ function love.update(_)
 	for k, v in pairs(pico8.keys) do
 		pico8.last_keys[k] = v
 	end	
+	-- api.prof.pop("frame")
 end
 
 function love.draw()
+	-- api.prof.push("frame")
 	api.setPicoCanvas()
 	restore_clip()
 	restore_camera()
@@ -815,6 +818,7 @@ function love.draw()
 	else
 		flip_screen()
 	end
+	-- api.prof.pop("frame")
 end
 
 function restore_camera()
@@ -1377,6 +1381,11 @@ function debugserverUpdate()
 	end
 end
 
+function love.quit()
+	-- log("QUIT + WRITE PROFILER FILE")
+    -- if api.prof and PROF_CAPTURE then api.prof.write("prof.mpack") end
+end
+
 function love.run()
 	if love.load then
 		love.load(love.arg.parseGameArguments(arg), arg)
@@ -1391,6 +1400,8 @@ function love.run()
 
 	-- Main loop time.
 	return function()
+		-- api.mprof.push("frame") -- top level frame
+		-- api.mprof.push("pre-update")
 		local limiter_time = love.timer.getTime() -- for __pico_fps_limiter / pico.frameLimiter
 
 		-- Process events.
@@ -1413,18 +1424,25 @@ function love.run()
 			dt = dt + love.timer.step()
 		end
 
+		-- api.mprof.pop()
+		-- api.mprof.push("update")
 		-- Call update and draw
 		local render = false
 		while dt > pico8.frametime do
 			if paused or not focus then -- luacheck: ignore 542
 				-- nop
 			else
+				-- api.mprof.push("update1")
 				-- will pass 0 if love.timer is disabled
 				if love.update then
 					love.update(pico8.frametime)
 				end
+				-- api.mprof.pop()
+				-- api.mprof.push("update-aud")
 				update_audio(pico8.frametime)
+				-- api.mprof.pop()
 			end
+			-- api.mprof.push("update2")
 			dt = dt - pico8.frametime
 			-- this forces while loop to finish imidiatley without update catching up, used after long operations like savegame loading/saving etc
 			if pico8.clearDTdelay then
@@ -1433,8 +1451,11 @@ function love.run()
 				dt = 0
 			end
 			render = true
+			-- api.mprof.pop()
 		end
+		-- api.mprof.pop()
 
+		-- api.mprof.push("draw")
 		if render and love.graphics and love.graphics.isActive() then
 			love.graphics.origin()
 			if not paused and focus then
@@ -1449,26 +1470,21 @@ function love.run()
 			-- reset mouse wheel
 			pico8.mwheel = 0
 		end
-
+		-- api.mprof.pop()
+		
+		-- api.mprof.push("debugserv")
 		-- debug server message handling, note that it can be uninitialized
 		debugserverUpdate()
+		-- api.mprof.pop()
 			
+		-- api.mprof.push("gc")
 		if love.timer then
 			if pico8.frameLimiter>0 then 
 				local timeLeft = 1.0/pico8.frameLimiter - (love.timer.getTime()-limiter_time)
 
 				-- https://love2d.org/forums/viewtopic.php?p=254778
-				
-				api.manualGC(timeLeft,1024*4)
-				-- api.manualGC(timeLeft,1024*16)
 
-				-- local start = love.timer.getTime()
-				-- for i = 1, 1000 do
-				-- 	collectgarbage("step", 1)
-				-- 	if love.timer.getTime() - start > timeLeft then
-				-- 		break
-				-- 	end
-				-- end
+				api.manualGC(timeLeft,1024*4)
 
 				timeLeft = 1.0/pico8.frameLimiter - (love.timer.getTime()-limiter_time)
 				love.timer.sleep( timeLeft ) 
@@ -1476,6 +1492,8 @@ function love.run()
 				love.timer.sleep(0.000001)
 			end
 		end
+		-- api.mprof.pop()
+		-- api.mprof.pop() -- top level frame
 	end
 end
 
