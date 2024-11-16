@@ -23,16 +23,6 @@ local ok
 ok,table_clear = pcall(require, "table.clear")
 api.table_clear = table_clear
 
--- this requires jprof library, should be run with run-jprof.bat  and possibly renamed love to xlove as F5 in vscode may terminate love.exe
--- PROF_CAPTURE = true
--- api.prof = require("jprof")
--- api.prof.connect()
-
--- this requires simple memprof.lua memprof-server.lua with server being run in powershell as cls ; lua C:\projects\lua\schifahren\memprof\memprof-server.lua 
--- at main there should be api.mprof.push("frame") / api.mprof.pop() sections in love.run
--- api.mprof = require("memprof") 
--- api.mprof.init()
-
 local __tempPointsTable = {}
 
 local flr = math.floor
@@ -41,6 +31,7 @@ api.string = string
 api.tonumber = tonumber
 api.love = love
 api.bit = bit
+api.bitser = require("bitser")
 api.debug = debug
 api.os = os
 api.serpent = require("serpent")
@@ -49,7 +40,8 @@ api.ffi = require("ffi")
 
 local function color(c)
 	if c ~= pico8.color then -- rostok: skip if this is current color
-		c = flr(c or 0) % 16
+		-- c = flr(c or 0) % 16
+		c = flr(c or 0) % 32
 		pico8.color = c
 		setColor(c)
 	end
@@ -124,10 +116,17 @@ function api._toggleFullScreen(state)
 	--for some reason this isn't called when fullscreen is unset
 	love.resize(love.graphics.getWidth(), love.graphics.getHeight())
 	love.graphics.setCanvas(canvas)
+	return state
 end
 
-function api._togglePixelPerfect()
-	pixelperfect = not pixelperfect
+-- sets pixel perfect value or toggles it if no value is passed, returns current settig
+function api._togglePixelPerfect(value)
+	if value==nil then 
+		pixelperfect = not pixelperfect
+	else
+		pixelperfect = value
+	end
+	return pixelperfect
 end	
 
 -- collect garbage shiv
@@ -249,11 +248,13 @@ function api.clip(x, y, w, h)
 end
 
 function api.cls(col)
-	col = flr(tonumber(col) or 0) % 16
+	-- col = flr(tonumber(col) or 0) % 16
+	col = flr(tonumber(col) or 0) % 32 -- 32 colors
 
 	pico8.clip = nil
 	love.graphics.setScissor()
-	love.graphics.clear(col / 15, 0, 0, 1, true, true)
+	-- love.graphics.clear(col / 15, 0, 0, 1, true, true)
+	love.graphics.clear(col / 31, 0, 0, 1, true, true) -- 32 colors
 	pico8.cursor = { 0, 0 }
 end
 
@@ -536,26 +537,27 @@ function api.psets(col,...)
 	love.graphics.points(...)
 end
 
-local canvasFrameNumber = nil
-local canvasGrabbed = nil
+api._canvasFrameNumber = nil
+api._canvasGrabbed = nil
 
 function api.pget(x, y)
-	x= x - pico8.camera_x
-	y= y - pico8.camera_y
+	x= x - pico8.camera_x - 1
+	y= y - pico8.camera_y - 1
 	if
 		x >= 0
 		and x < pico8.resolution[1]
 		and y >= 0
 		and y < pico8.resolution[2]
 	then
-		if canvasFrameNumber~=pico8.frames then
-			canvasFrameNumber = pico8.frames
+		if api._canvasFrameNumber~=pico8.frames then
+			api._canvasFrameNumber = pico8.frames
 			love.graphics.setCanvas()
-			canvasGrabbed = pico8.screen:newImageData()
+			api._canvasGrabbed = pico8.screen:newImageData()
 			api.setPicoCanvas()
 		end
-		local r = canvasGrabbed:getPixel(flr(x), flr(y))
-		return r * 15
+		local r = api._canvasGrabbed:getPixel(flr(x), flr(y))
+		-- return r*15
+		return flr(r*31+0.5) -- 32 colors
 	end
 	return -1
 end
@@ -573,7 +575,8 @@ function api.pgetOLD(x, y)
 		local __screen_img = pico8.screen:newImageData()
 		api.setPicoCanvas()
 		local r = __screen_img:getPixel(flr(x), flr(y))
-		return r * 15
+		-- return r*15
+		return r*31+0.5 -- 32 colors
 	end
 	-- warning(string.format("pget out of screen %d, %d", x, y))
 	return 0
@@ -592,37 +595,95 @@ local function tostring(str)
 end
 
 function api._font(num)
-	local font, glyphs
+    -- Initialize the FONTS table if it doesn't exist
+    if not api.FONTS then
+        api.FONTS = {}
 
-	num = num or 0
-	if num>2 then num = 0 end
-	if num==0 then -- 3x5
-		glyphs=""
-		for i=32,153 do glyphs=glyphs..(api.glyph_edgecases[api.pico8_glyphs[i]] or api.pico8_glyphs[i]) end
-		font = love.graphics.newImageFont("font.png", glyphs, 1)
-		api.GLYPH_W = 4
-		api.GLYPH_H = 6
-		api.GLYPH_FONT = 0
-	elseif num==1 then -- 4x5
-		glyphs=""
-		for i=32,127 do glyphs=glyphs..string.char(i) end
-		font = love.graphics.newImageFont("font4x6.png", glyphs, 1)
-		api.GLYPH_W = 5
-		api.GLYPH_H = 6
-		api.GLYPH_FONT = 1
-	elseif num==2 then -- 4x6
-		font = love.graphics.newFont("unnamed-4x6.ttf", 6)
-		api.GLYPH_W = 5
-		api.GLYPH_H = 7
-		api.GLYPH_FONT = 2
-	end
+        -- Load all font data into the FONTS table
+        local glyphs
+        -- Font 0: 3x5
+        glyphs = ""
+        for i = 32, 153 do
+            glyphs = glyphs .. (api.glyph_edgecases[api.pico8_glyphs[i]] or api.pico8_glyphs[i])
+        end
+        api.FONTS[0] = {
+            font = love.graphics.newImageFont("font.png", glyphs, 1),
+            glyphWidth = 4,
+            glyphHeight = 6
+        }
+        -- Font 1: 4x5
+        glyphs = ""
+        for i = 32, 127 do glyphs = glyphs .. string.char(i) end
+        api.FONTS[1] = {
+            font = love.graphics.newImageFont("font4x6.png", glyphs, 1),
+            glyphWidth = 5,
+            glyphHeight = 6
+        }
+        -- Font 2: 4x6
+        api.FONTS[2] = {
+            font = love.graphics.newFont("unnamed-4x6.ttf", 6),
+            glyphWidth = 5,
+            glyphHeight = 7
+        }
+        -- Font 3: 8x14
+        glyphs = ""
+        for i = 32, 127 do glyphs = glyphs .. string.char(i) end
+        api.FONTS[3] = {
+            font = love.graphics.newImageFont("fontvga8x14-32-127.png", glyphs, 1),
+            glyphWidth = 8,
+            glyphHeight = 14
+        }
+    end
 
-	love.graphics.setFont(font)
-	font:setFilter("nearest", "nearest")
+    -- Set num default and clamp it to the valid range
+    num = num or 0
+    if num > 3 then num = 0 end
+
+    -- Set the font using the preloaded data
+    local fontData = api.FONTS[num]
+    love.graphics.setFont(fontData.font)
+    fontData.font:setFilter("nearest", "nearest")
+    
+    api.GLYPH_W = fontData.glyphWidth
+    api.GLYPH_H = fontData.glyphHeight
+    api.GLYPH_FONT = num
 end
+
 
 function api._glyphSize()
 	return api.GLYPH_W,api.GLYPH_H,api.GLYPH_FONT
+end
+
+function api.print0(...)
+	local w,h,f = api._glyphSize()
+	api._font(0)
+	local x,y,z = api.print(...)
+	api._font(f)
+	return x,y,z
+end
+
+function api.print1(...)
+	local w,h,f = api._glyphSize()
+	api._font(1)
+	local x,y,z = api.print(...)
+	api._font(f)
+	return x,y,z
+end
+
+function api.print2(...)
+	local w,h,f = api._glyphSize()
+	api._font(2)
+	local x,y,z = api.print(...)
+	api._font(f)
+	return x,y,z
+end
+
+function api.print3(...)
+	local w,h,f = api._glyphSize()
+	api._font(3)
+	local x,y,z = api.print(...)
+	api._font(f)
+	return x,y,z
 end
 
 function api.print(...)
@@ -670,16 +731,38 @@ function api.print(...)
 	end
 	local to_print = tostring(api.tostr(str))
 
+	-- diactrics replacement
+	-- for key, value in pairs(api.glyph_diactrics) do to_print = to_print:gsub(key, value) end
+
 	to_print=to_print:gsub('.', function (c)
 		-- print(c, string.byte(c), pico8_glyphs[string.byte(c)])
 		local gl = pico8_glyphs[string.byte(c)]
 		if not gl then return c end
 		return glyph_edgecases[gl] or gl end)
 
+	local curFont = love.graphics.getFont()
+
 	love.graphics.setShader(pico8.text_shader)
-	love.graphics.print(to_print, flr(x)-1, flr(y)-1)
+	-- love.graphics.print(to_print, flr(x)-1, flr(y)-1)
+	local sx,sy = flr(x)-1, flr(y)-1
+	local xx,yy = sx, sy
+	to_print:gsub('.', function (c)
+		if     c=='\b' then
+			xx = xx - fw
+		elseif c=='\n' then
+			xx,yy = sx, yy+fh
+		elseif c=='\r' then
+			xx = sx
+		else
+			if curFont:hasGlyphs(string.byte(c)) then 
+				love.graphics.print(c,xx,yy) 
+			end
+			xx = xx + fw
+		end
+	end )
 	love.graphics.setShader(pico8.draw_shader) -- rostok: i think we should fall back to draw_shader
 
+	-- return xx-sx,yy-sy
 	-- return x,y being right and bottom coordinates
 	str = to_print
 	local maxLineLength = 0
@@ -1967,7 +2050,8 @@ function api.sget(x, y)
 	y = flr(tonumber(y) or 0)
 
 	if x >= 0 and x < 128 and y >= 0 and y < 128 then
-		local c = pico8.spritesheet_data:getPixel(x, y)*15
+		-- local c = pico8.spritesheet_data:getPixel(x, y)*15
+		local c = pico8.spritesheet_data:getPixel(x, y)*31 -- 32 colors
 		return c
 	end
 	return 0
@@ -1978,7 +2062,8 @@ function api.sset(x, y, c)
 	y = flr(tonumber(y) or 0)
 	c = flr(tonumber(c) or 0)%16
 	if x>=0 and x<128 and y>=0 and y<128 then
-		pico8.spritesheet_data:setPixel(x, y, c / 15, 0, 0, 1)
+		-- pico8.spritesheet_data:setPixel(x, y, c / 15, 0, 0, 1)
+		pico8.spritesheet_data:setPixel(x, y, c / 31, 0, 0, 1) -- 32 colors
 		pico8.spritesheet_changed = true --lazy
 	end
 end
@@ -2064,8 +2149,10 @@ function api.peek(addr)
 	if addr < 0 then
 		return 0
 	elseif addr < 0x2000 then
-		local lo = pico8.spritesheet_data:getPixel(addr*2%128, flr(addr/64))*15
-		local hi = pico8.spritesheet_data:getPixel(addr*2%128+1, flr(addr/64))*15
+		-- local lo = pico8.spritesheet_data:getPixel(addr*2%128, flr(addr/64))*15
+		-- local hi = pico8.spritesheet_data:getPixel(addr*2%128+1, flr(addr/64))*15
+		local lo = pico8.spritesheet_data:getPixel(addr*2%128, flr(addr/64))*31 -- 32 colors
+		local hi = pico8.spritesheet_data:getPixel(addr*2%128+1, flr(addr/64))*31 -- 32 colors
 		return hi*16+lo
 	elseif addr < 0x3000 then
 		addr = addr - 0x2000
@@ -2418,31 +2505,74 @@ end
 
 -- evaluate single lua expression in cart context
 function api.eval(code)
-    local function is_single_expression(code)
-        -- A simple heuristic to check if the code is a single expression
+    local function try_load_single_expression(code)
         local func, err = loadstring("return " .. code, "api.eval")
-        if not func then
-            -- If wrapping in return fails, it's likely not a single expression
-            return false
+        if func then
+            return func  -- Return the function directly if it's a single expression
         end
-        return true
+        return nil, err
     end
 
-	code = code or "nil"
+    code = code or "nil"
 
-    if is_single_expression(code) then
-        code = "return " .. code
-    else
-        code = code
-    end
-	
-	local f, err = loadstring(code,"api.eval")
+    local f, err = try_load_single_expression(code)
     if not f then
-		print("eval error:"..(err or "nil"))
-        return nil
+        -- If it's not a single expression, load it as a full code block
+        f, err = loadstring(code, "api.eval")
+        if not f then
+            print("eval error: " .. (err or "nil"))
+            return false, err  -- Return failure status and error message
+        end
     end
-	setfenv(f,pico8.cart)
-	return f()
+
+    setfenv(f, pico8.cart)
+
+    -- Execute the function in protected mode to catch errors
+    local success, result = pcall(f)
+    if not success then
+        print("eval runtime error: " .. result)
+    end
+
+    return success, result
+end
+
+-- set value in global pico8 cart namespace by string path, for example api.evalset("view.groundColor", 3, true)
+function api.evalset(fieldString, value, createFields)
+    local current = pico8.cart._ENV
+    local lastPart
+
+    for part in string.gmatch(fieldString, "[^.]+") do
+        if lastPart then
+            -- If the field doesn't exist, create it if createFields is true
+            if not current[lastPart] then
+                if createFields then
+                    current[lastPart] = {}
+                else
+                    return false, "Field path is invalid"
+                end
+            end
+            current = current[lastPart]
+        end
+        lastPart = part
+    end
+
+    -- Set the final part to the desired value
+    current[lastPart] = value
+    return true
+end
+
+-- get value in global pico8 cart namespace by string path, for example api.evalget("view.groundColor")
+function api.evalget(fieldString)
+    local current = pico8.cart._ENV
+
+    for part in string.gmatch(fieldString, "[^.]+") do
+        current = current[part]
+        if not current then
+            return nil, "Field path is invalid"
+        end
+    end
+
+    return current
 end
 
 function api.run()
