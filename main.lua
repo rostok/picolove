@@ -15,7 +15,17 @@ local QueueableSource = require("QueueableSource")
 local bit = require("bit")
 local api = require("api")
 local cart = require("cart")
+--------------------------------------------------------
+-- this requires jprof library, should be run with run-jprof.bat  and possibly renamed love to xlove as F5 in vscode may terminate love.exe
+-- PROF_CAPTURE = true
+-- api.prof = require("jprof")
+-- api.prof.connect()
 
+-- this requires simple memprof.lua memprof-server.lua with server being run in powershell as cls ; lua C:\projects\lua\schifahren\memprof\memprof-server.lua 
+-- at main there should be api .mprof. push("frame") / api .mprof. pop() sections in love.run
+-- api.mprof = require("memprof")
+-- api.mprof.init()
+--------------------------------------------------------
 cartname = nil -- used by api.reload
 local initialcartname = nil -- used by esc
 local love_args = nil -- luacheck: no unused
@@ -29,38 +39,38 @@ pico8 = {
 	resolution = __pico_resolution,
 	screen = nil,
 	palette = {
-		[0] = { 0, 0, 0, 255 },
-		{ 29, 43, 83, 255 },
-		{ 126, 37, 83, 255 },
-		{ 0, 135, 81, 255 },
-		{ 171, 82, 54, 255 },
-		{ 95, 87, 79, 255 },
-		{ 194, 195, 199, 255 },
-		{ 255, 241, 232, 255 },
-		{ 255, 0, 77, 255 },
-		{ 255, 163, 0, 255 },
-		{ 255, 240, 36, 255 },
-		{ 0, 231, 86, 255 },
-		{ 41, 173, 255, 255 },
-		{ 131, 118, 156, 255 },
-		{ 255, 119, 168, 255 },
-		{ 255, 204, 170, 255 },
-		{ 41, 24, 20, 255 },
-		{ 17, 29, 53, 255 },
-		{ 66, 33, 54, 255 },
-		{ 18, 83, 89, 255 },
-		{ 116, 47, 41, 255 },
-		{ 73, 51, 59, 255 },
-		{ 162, 136, 121, 255 },
-		{ 243, 239, 125, 255 },
-		{ 190, 18, 80, 255 },
-		{ 255, 108, 36, 255 },
-		{ 168, 231, 46, 255 },
-		{ 0, 181, 67, 255 },
-		{ 6, 90, 181, 255 },
-		{ 117, 70, 101, 255 },
-		{ 255, 110, 89, 255 },
-		{ 255, 157, 129, 255 }
+		 [0] = {   0,     0, 	  0, 	255 },
+		 [1] = {  29,	 43, 	 83, 	255 },
+		 [2] = { 126,	 37, 	 83, 	255 },
+		 [3] = {   0,	135, 	 81, 	255 },
+		 [4] = { 171,	 82, 	 54, 	255 },
+		 [5] = {  95,	 87, 	 79, 	255 },
+		 [6] = { 194,	195, 	199, 	255 },
+		 [7] = { 255,	241, 	232, 	255 },
+		 [8] = { 255,	  0, 	 77, 	255 },
+		 [9] = { 255,	163, 	  0,    255 },
+		[10] = { 255,	240, 	 36, 	255 },
+		[11] = {   0, 	231, 	 86, 	255 },
+		[12] = {  41,	173, 	255, 	255 },
+		[13] = { 131,	118, 	156, 	255 },
+		[14] = { 255,	119, 	168, 	255 },
+		[15] = { 255,	204, 	170, 	255 },
+		[16] = { 41,	 24, 	 20, 	255 },
+		[17] = { 17,	 29, 	 53, 	255 },
+		[18] = { 66,	 33, 	 54, 	255 },
+		[19] = { 18,	 83, 	 89, 	255 },
+		[20] = { 116,	 47, 	 41, 	255 },
+		[21] = { 73,	 51, 	 59, 	255 },
+		[22] = { 162,	136, 	121, 	255 },
+		[23] = { 243,	239, 	125, 	255 },
+		[24] = { 190,	 18, 	 80, 	255 },
+		[25] = { 255,	108, 	 36, 	255 },
+		[26] = { 168,	231, 	 46, 	255 },
+		[27] = {   0,   181, 	 67, 	255 },
+		[28] = {   6,    90, 	181, 	255 },
+		[29] = { 117,	 70, 	101, 	255 },
+		[30] = { 255,	110,	 89, 	255 },
+		[31] = { 255,	157, 	129, 	255 }
 	},
 	color = nil,
 	spriteflags = {},
@@ -126,7 +136,7 @@ pico8 = {
 }
 api.__pico8 = pico8
 pico8_glyphs = { [0] = "\0",
-	"¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "\b", "\t", "\n", "ᵇ", -- \b or 8 ⁸ replaced with empty
+	"¹", "²", "³", "⁴", "⁵", "⁶", "\a", "\b", "\t", "\n", "ᵇ", -- \a or 7 ⁷ replaced with empty
 	"ᶜ", "\r", "ᵉ", "ᶠ", "▮", "■", "□", "⁙", "⁘", "‖", "◀",
 	"▶", "「", "」", "¥", "•", "、", "。", "゛", "゜", " ", "!",
 	"\"", "#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/", "0",
@@ -158,9 +168,23 @@ glyph_edgecases = {
 	["➡️"] = "➡",
 	["⬆️"] = "⬆",
 	["⬅️"] = "⬅",
-	["\b"] = "",
+	["\a"] = "", -- bell is empty 
+	["\b"] = "", -- bell is empty 
 }
 api.glyph_edgecases = glyph_edgecases
+-- switch 2 utf-8 character glyphs with the respective 1 character alternative
+
+-- api.glyph_diactrics = {
+-- 	["ą"] = "a\b,",
+-- 	["ę"] = "e\b,",
+-- 	["ć"] = "c\b'",
+-- 	["ń"] = "n\b'",
+-- 	["ł"] = "l\b/",
+-- 	["ó"] = "o\b'",
+-- 	["ś"] = "s\b'",
+-- 	["ż"] = "z\b'",
+-- 	["ź"] = "z\b'",
+-- }
 
 local flr, abs = math.floor, math.abs
 
@@ -204,7 +228,8 @@ end
 log = print
 
 function shdr_unpack(thing)
-	return unpack(thing, 0, 15)
+	-- return unpack(thing, 0, 15)
+	return unpack(thing, 0, 31) -- 32 colors
 end
 
 function restore_clip()
@@ -216,7 +241,8 @@ function restore_clip()
 end
 
 function setColor(c)
-	love.graphics.setColor(c / 15, 0, 0, 1)
+	-- love.graphics.setColor(c / 15, 0, 0, 1)
+	love.graphics.setColor(c / 31, 0, 0, 1) -- 32 colors
 end
 
 function _loadCART(_cartname)
@@ -446,7 +472,7 @@ function love.load(argv)
 	pico8.draw_palette = {}
 	pico8.display_palette = {}
 	pico8.pal_transparent = {}
-	for i = 0, 15 do
+	for i = 0, 15+16 do
 		pico8.draw_palette[i] = i
 		pico8.pal_transparent[i] = i == 0 and 0 or 1
 		pico8.display_palette[i] = pico8.palette[i]
@@ -486,7 +512,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 	float cz = min(vz,z); // these are in world space, calculated z
 	gl_FragDepth = 1-(cz-(viewy-viewh/2))/viewh/3-0.3333333;
 	// lower z is closer, bigger is further,   
-	int index = int(color.r*15.0+0.5);
+	//int index = int(color.r*15.0+0.5);
+	int index = int(color.r*31.0+0.5); // 32 colors
 	float a = 1.0;
 	if (threshold>0) {
 		int u = int(mod(screen_coords.x + viewx,4));
@@ -494,7 +521,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 		int i = u+v*4;
 		if (ditherPattern[i]/15.0<=threshold) { a = 0.0; gl_FragDepth = 999; }
 	}
-	return vec4(palette[index]/15.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component
+	//return vec4(palette[index]/15.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component
+	return vec4(palette[index]/31.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component, 32 colors
 }]]
 
 	-- blue noise dithering
@@ -531,7 +559,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 			if (isNaN(z)||isInf(z)) cz = vz;
 			gl_FragDepth = unlerp( viewy+viewh*1.5, viewy-viewh*1.5, cz ); // extend view so 0..1 of z is below and benath of visible area
 			//gl_FragDepth = clamp(gl_FragDepth,0.0,1.0);
-			int index = int(color.r*15.0+0.5);
+			//int index = int(color.r*15.0+0.5);
+			int index = int(color.r*31.0+0.5); // 32 colors
 			float a = 1.0;
 			if (threshold!=0) {
 				vec2 bn;
@@ -540,7 +569,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 				if (threshold>0 && Texel(blueNoise,bn).x<=threshold) { a = 0.0; gl_FragDepth = 999; }
 				if (threshold<0 && Texel(blueNoise,bn).x>=-threshold) { a = 0.0; gl_FragDepth = 999; }
 			}
-			return vec4(palette[index]/15.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component
+			//return vec4(palette[index]/15.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component
+			return vec4(palette[index]/31.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component, 32 colors
 		}]]
 	-- blue noise ends
 
@@ -553,10 +583,12 @@ extern float palette[32];
 extern float transparent[16];
 
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
-	int index = int(Texel(texture, texture_coords).r*15.0+0.5);
+	//int index = int(Texel(texture, texture_coords).r*15.0+0.5);
+	int index = int(Texel(texture, texture_coords).r*31.0+0.5); // 32 colors
 	float alpha = transparent[index];
 	
-	return vec4(palette[index]/15.0, 0.0, 0.0 ,alpha);
+	//return vec4(palette[index]/15.0, 0.0, 0.0 ,alpha);
+	return vec4(palette[index]/31.0, 0.0, 0.0 ,alpha); // 32 colors
 }]])
 	pico8.sprite_shader:send("palette", shdr_unpack(pico8.draw_palette))
 	pico8.sprite_shader:send("transparent", shdr_unpack(pico8.pal_transparent))
@@ -569,10 +601,12 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 	if(texcolor.a == 0.0) {
 		return vec4(0.0,0.0,0.0,0.0);
 	}
-	int index = int(color.r*15.0+0.5);
+	//int index = int(color.r*15.0+0.5);
+	int index = int(color.r*31.0+0.5); // 32 colors
 	
 	// lookup the color in the palette by index
-	return vec4(palette[index]/15.0, 0.0, 0.0, texcolor.a);
+	//return vec4(palette[index]/15.0, 0.0, 0.0, texcolor.a);
+	return vec4(palette[index]/31.0, 0.0, 0.0, texcolor.a); // 32 colors
 }]])
 	pico8.text_shader:send("palette", shdr_unpack(pico8.draw_palette))
 
@@ -580,7 +614,8 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 extern vec4 palette[32];
 
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
-	int index = int(Texel(texture, texture_coords).r*15.0+0.5);
+	//int index = int(Texel(texture, texture_coords).r*15.0+0.5);
+	int index = int(Texel(texture, texture_coords).r*31.0+0.5); // 32 colors
 	
 	// lookup the color in the palette by index
 	return palette[index]/255.0;
