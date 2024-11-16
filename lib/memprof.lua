@@ -14,13 +14,15 @@ function memprof.init()
     local success = client:send("CLEAR\n")
     if success then
         active = true
-        print("memprof: connected ++++++++++++++++++++++++++++++++++++++++++++")
+        io.write("\27[32m")
+        print("memprof: connected")
+        io.write("\27[0m")
     else
-        print("---------------------------------------------------------------")
-        print("memprof: Unable to connect to server, running without profiling")
-        print("---------------------------------------------------------------")
         client = nil
         active = false
+        io.write("\27[31m")
+        print("memprof: Unable to connect to server, running without profiling")
+        io.write("\27[0m")
     end
 end
 
@@ -29,12 +31,17 @@ function memprof.push(section_name)
     if not active then return end
     if #stack == 0 then
         -- New frame if topmost section
-        client:send("FRAME\n")
+        -- client:send("S\n")
     end
     
     local mem_usage = collectgarbage("count")
     table.insert(stack, section_name)
-    client:send(string.format("PUSH %s %.2f\n", section_name, mem_usage))
+    client:send(string.format("U%s %.2f\n", section_name, mem_usage))
+    -- client:send("PUSH ")
+    -- client:send(section_name)
+    -- client:send(" ")
+    -- client:send(mem_usage)
+    -- client:send("\n")
     collectgarbage("stop")
 end
 
@@ -44,12 +51,20 @@ function memprof.pop()
     
     local mem_usage = collectgarbage("count")
     local section = table.remove(stack)
-    client:send(string.format("POP %s %.2f\n", section, mem_usage))
+    client:send(string.format("O%s %.2f\n", section, mem_usage))
+    -- client:send("POP ")
+    -- client:send(section)
+    -- client:send(" ")
+    -- client:send(mem_usage)
+    -- client:send("\n")
     
     if #stack == 0 then
-        client:send("FRAME END\n")
+        client:send("E\n")
     end
     collectgarbage("restart")
 end
+
+-- function memprof.push(section_name) end
+-- function memprof.pop(section_name) end
 
 return memprof
