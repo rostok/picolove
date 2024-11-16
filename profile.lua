@@ -217,63 +217,64 @@ function profile.flameHTML(dataFile,extraContent)
   </div>
   ]]..dataScript..[[
   <script>
-  let width = document.documentElement.clientWidth-8;
-  var maxtime = Math.max(...data.map(obj => obj.time));
-  var scale = width/maxtime;
-  var minstack = Math.min(...data.map(obj => obj.depth = obj.stack.split('/').length));
-  var names = [...new Set(data.map(obj => obj.name))].sort().reduce((acc, name, idx) => ({ ...acc, [name]: idx }), {});
-  var totalCalls = {};
-  data.forEach(d => totalCalls[d.name] = (totalCalls[d.name] || 0) + d.n);
-  data.forEach(d => d.totalCalls = totalCalls[d.name]);
-  var totalTime = {};
-  data.forEach(d => totalTime[d.name] = (totalTime[d.name] || 0) + d.time);
-  data.forEach(d => d.totalTime = totalTime[d.name]);
+let width = document.documentElement.clientWidth - 8;
+var maxtime = Math.max(...data.map((obj) => obj.time));
+var scale = width / maxtime;
+var minstack = Math.min(...data.map((obj) => (obj.depth = obj.stack.split("/").length)));
+var names = [...new Set(data.map((obj) => obj.name))].sort().reduce((acc, name, idx) => ({ ...acc, [name]: idx }), {});
+var totalCalls = {};
+data.forEach((d) => (totalCalls[d.name] = (totalCalls[d.name] || 0) + d.n));
+data.forEach((d) => (d.totalCalls = totalCalls[d.name]));
+var totalTime = {};
+data.forEach((d) => (totalTime[d.name] = (totalTime[d.name] || 0) + d.time));
+data.forEach((d) => (d.totalTime = totalTime[d.name]));
 
-  function stringToColor(str) { return `hsl(${(360 * names[str]) / Object.keys(names).length},50%,50%)`;  }
-  
-  function bar(x, y, w, t, d) {
-      var bar = document.createElement('div');
-      bar.className = 'bar';
-      bar.style.left = 4+x + 'px';
-      bar.style.top = 4+y + 'px';
-      bar.style.width = w + 'px';
-      bar.innerHTML = t;
-      bar.style.backgroundColor = stringToColor(t);
-      var tooltip = document.createElement('div');
-      tooltip.className = 'tooltip';
-      tooltip.innerHTML = 'name,source,defined,declaration,n,time,totalCalls,totalTime'.split(',').map(s=>`${s}:${d[s]}`).join('<br>');
-  
-      bar.addEventListener('mousemove', function(e) {
-          tooltip.style.left = (e.clientX + 10) + 'px';
-          tooltip.style.top  = (e.clientY + 10) + 'px';
-      });
-      bar.addEventListener('mouseout', function() { tooltip.style.display = 'none'; });
-      bar.addEventListener('mouseover', function() { tooltip.style.display = 'block'; });
-  
-      document.body.appendChild(tooltip);
-      document.body.appendChild(bar);
-      console.log(tooltip.width);
-  }
-  function rec(depth,parent='',startTime=0) {
-    data.filter(d=>d.depth==depth && (parent=='' || d.stack.startsWith(parent)) ).sort((a, b) => a.name.localeCompare(b.name)).forEach(d=>{
-      var x = startTime*scale;
-      var y = (depth-minstack)*25;
-      var w = d.time*scale;
-      bar(x,y,w,d.name,d);
-      rec(depth+1,d.stack,startTime);
-      startTime += d.time;
-    });
-  }
-  function go() {
-    document.querySelectorAll('div.bar,div.toolbar').forEach(d=>d.remove())
-    rec(minstack)
-  }
-  go()
-  document.getElementById('scale').addEventListener('change', function(event) {
-  	var v = parseFloat(event.target.value)||0;
-  	scale = v==0 ? width/maxtime : v;
-  	go()
+function stringToColor(str) { return `hsl(${(360 * names[str]) / Object.keys(names).length}, 50%, 50%)`; }
+
+function bar(x, y, w, t, d) {
+  var bar = document.createElement("div");
+  bar.className = "bar";
+  bar.style.left = 4 + x + "px";
+  bar.style.top = 4 + y + "px";
+  bar.style.width = w + "px";
+  bar.innerHTML = t;
+  bar.style.backgroundColor = stringToColor(t);
+  var tooltip = document.createElement("div");
+  tooltip.className = "tooltip";
+  tooltip.innerHTML = "name,source,defined,declaration,n,time,totalCalls,totalTime".split(",").map((s) => `${s}:${d[s]}`).join("<br>");
+
+  bar.addEventListener("mousemove", function (e) { tooltip.style.left = e.clientX + 10 + "px"; tooltip.style.top = e.clientY + 10 + "px"; });
+  bar.addEventListener("mouseout", function () { tooltip.style.display = "none"; });
+  bar.addEventListener("mouseover", function () { tooltip.style.display = "block"; });
+
+  document.body.appendChild(tooltip);
+  document.body.appendChild(bar);
+}
+
+function go() {
+  document.querySelectorAll("div.bar,div.tooltip").forEach((d) => d.remove());
+  data.sort((a, b) => a.depth === b.depth ? a.stack.localeCompare(b.stack) : a.depth - b.depth);
+  let depthPosition = {};
+  let parentBars = {};
+  data.forEach((d) => {
+    let depth = d.depth;
+    let parentStack = d.stack.substring(0, d.stack.lastIndexOf("/"));
+    let parentBar = parentBars[parentStack];
+    let startTime = 0;
+    if (parentBar) startTime = parentBar.lastChildEndTime !== undefined ? parentBar.lastChildEndTime : parentBar.startTime;
+    bar(startTime * scale, (depth - minstack) * 25, d.time * scale, d.name, d);
+    if (parentBar) parentBar.lastChildEndTime = startTime + d.time;
+    parentBars[d.stack] = { startTime: startTime };
   });
+}
+
+go();
+
+document.getElementById("scale").addEventListener("change", function (event) {
+  var v = parseFloat(event.target.value) || 0;
+  scale = v == 0 ? width / maxtime : v;
+  go();
+});
   </script>
   </body>    
   </html>]]
