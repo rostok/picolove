@@ -13,23 +13,24 @@ function debugserver.startServer(portNumber, hookFn)
     local success, err = server:bind("*", portNumber)
     if not success then
         print("Error: Debug server not started. server:bind() error: " .. err)
-        return
+        return false
     end
 
     success, err = server:listen()
     if not success then
         print("Error: Debug server not started. server:listen() error: " .. err)
-        return
+        return false
     end
 
     msgParser = hookFn or msgParser
 
     if not server then
         print("Error: Debug server not started.")
-        return
+        return false
     end
 
     print("Debug server started on port " .. portNumber)
+    return true
 end
 
 function debugserver.receive()
@@ -39,6 +40,9 @@ function debugserver.receive()
     end
 
     local client, err = server:accept()
+    if err and err~="timeout" then
+        print("Error:",err)
+    end
     if client then
         local message, receive_err = client:receive("*l") -- Read a line from the client
         if not receive_err and message then
