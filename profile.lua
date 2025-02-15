@@ -243,7 +243,7 @@ function bar(x, y, w, t, d) {
   tooltip.className = "tooltip";
   tooltip.innerHTML = "name,source,defined,declaration,n,time,totalCalls,totalTime".split(",").map((s) => `${s}:${d[s]}`).join("<br>");
 
-  bar.addEventListener("mousemove", function (e) { tooltip.style.left = e.clientX + 10 + "px"; tooltip.style.top = e.clientY + 10 + "px"; });
+  bar.addEventListener("mousemove", (e) => { tooltip.style.left = e.pageX + 10; tooltip.style.top = e.pageY + 10; });
   bar.addEventListener("mouseout", function () { tooltip.style.display = "none"; });
   bar.addEventListener("mouseover", function () { tooltip.style.display = "block"; });
 
