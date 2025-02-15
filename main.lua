@@ -8,7 +8,9 @@ io.write("\27[2J\27c\27[H") -- clear screen/terminal
 print("picolove hello @ ".._VERSION.." & Love2D "..table.concat({love.getVersion()},"."))
 -- local debugserver = nil
 local debugserver = require("debugserver")
-debugserver.startServer(1234) -- Replace with your desired port number
+if not debugserver.startServer(55555) then debugserver=nil end
+-- sometimes 1234 is exluded, check with netsh interface ipv4 show excludedportrange protocol=tcp
+-- use this : net stop winnat & net start winnat
 require("strict")
 local QueueableSource = require("QueueableSource")
 
@@ -169,22 +171,33 @@ glyph_edgecases = {
 	["⬆️"] = "⬆",
 	["⬅️"] = "⬅",
 	["\a"] = "", -- bell is empty 
-	["\b"] = "", -- bell is empty 
+	-- uncomment this to remove diactrics substitution
+	-- ["\b"] = "", -- bell is empty 
 }
 api.glyph_edgecases = glyph_edgecases
 -- switch 2 utf-8 character glyphs with the respective 1 character alternative
 
--- api.glyph_diactrics = {
--- 	["ą"] = "a\b,",
--- 	["ę"] = "e\b,",
--- 	["ć"] = "c\b'",
--- 	["ń"] = "n\b'",
--- 	["ł"] = "l\b/",
--- 	["ó"] = "o\b'",
--- 	["ś"] = "s\b'",
--- 	["ż"] = "z\b'",
--- 	["ź"] = "z\b'",
--- }
+-- comment this to remove diactrics substitution
+api.glyph_diactrics = {
+	["ą"] = "a\b,",
+	["ę"] = "e\b,",
+	["ć"] = "c\b'",
+	["ń"] = "n\b'",
+	["ł"] = "l\b/",
+	["ó"] = "o\b'",
+	["ś"] = "s\b'",
+	["ż"] = "z\b'",
+	["ź"] = "z\b'",
+	["Ą"] = "A\b,",
+	["Ę"] = "E\b,",
+	["Ć"] = "C\b'",
+	["Ń"] = "N\b'",
+	["Ł"] = "L\b/",
+	["Ó"] = "O\b'",
+	["Ś"] = "S\b'",
+	["Ż"] = "Z\b'",
+	["Ź"] = "Z\b'",
+}
 
 local flr, abs = math.floor, math.abs
 
@@ -197,6 +210,7 @@ local gif_canvas = nil
 local gif_recording = nil
 
 local osc
+host_time = 0
 local paused = false
 local focus = true
 
@@ -477,6 +491,16 @@ function love.load(argv)
 		pico8.pal_transparent[i] = i == 0 and 0 or 1
 		pico8.display_palette[i] = pico8.palette[i]
 	end
+
+	pico8.scanline_shader = love.graphics.newShader([[
+			extern float line_spacing; // Distance between scanlines
+			extern float line_thickness; // Thickness of scanlines
+			vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
+				float y = mod(screen_coords.y, line_spacing);
+				float mask = step(y, line_thickness); // Mask for the scanlines
+				return vec4(color.rgb * mask, color.a);
+			}
+		]])
 
 	-- there seems to be no way to show depth buffer
 	-- for some reason it is always black
@@ -848,11 +872,7 @@ function love.draw()
 	__profiling.R = profileReport(__profiling.R, "profileR.txt", 30)
 
 	-- draw the contents of pico screen to our screen
-	if pixelperfect then
-		flip_screen_pixelperfect()
-	else
-		flip_screen()
-	end
+	flip_screen(pixelperfect)
 	-- api.prof.pop("frame")
 end
 
@@ -867,69 +887,7 @@ function restore_camera()
 	-- with the center of pixels rather than their upper-left corner. Do this by passing x+0.5 and y+0.5 or using love.graphics.translate().
 end
 
-function flip_screen()
-	love.graphics.setShader(pico8.display_shader)
-	love.graphics.setCanvas()
-	love.graphics.origin()
-	love.graphics.setScissor()
-
-	love.graphics.setBackgroundColor(3/255, 5/255, 10/255)
-	love.graphics.clear()
-
---[[
-	local screen_w, screen_h = love.graphics.getDimensions()
-	if screen_w > screen_h then
-		love.graphics.draw(
-			pico8.screen,
-			screen_w / 2 - pico8.resolution[1]/2 * scale,
-			ypadding * scale,
-			0,
-			scale,
-			scale
-		)
-	else
-		love.graphics.draw(
-			pico8.screen,
-			xpadding * scale,
-			screen_h / 2 - pico8.resolution[2]/2 * scale,
-			0,
-			scale,
-			scale
-		)
-	end
---]]
-    -- Get the dimensions of the LOVE window
-    local window_w, window_h = love.graphics.getDimensions()
-    -- Calculate the scaling factor to fit the pico8 screen inside the window
-    local scale = math.min(window_w/pico8.resolution[1], window_h/pico8.resolution[2])
-    -- Calculate the dimensions of the scaled pico8 screen
-    local pico8_w, pico8_h = pico8.resolution[1] * scale, pico8.resolution[2] * scale
-    -- Calculate the offsets to center the scaled pico8 screen
-    local x_offset, y_offset = (window_w - pico8_w) / 2, (window_h - pico8_h) / 2
-    -- Draw the scaled pico8 screen centered on the LOVE display
-    love.graphics.draw(pico8.screen, x_offset, y_offset, 0, scale, scale)	
-	
-	-- draw zbuffer
-	-- love.graphics.setShader(pico8.depthView)
-	-- pico8.depthView:send("depth",pico8.depth)
-    -- love.graphics.draw(pico8.depth, x_offset, y_offset, 0, scale, scale)	
-
-	love.graphics.present()
-
-	if gif_canvas then
-		love.graphics.setCanvas(gif_canvas)
-		love.graphics.draw(pico8.screen, 0, 0, 0) -- no scaling ..., 2, 2
-		love.graphics.setCanvas()
-		gif_recording:frame(gif_canvas:newImageData())
-	end
-	-- get ready for next time
-	love.graphics.setShader(pico8.draw_shader)
-	api.setPicoCanvas()
-	restore_clip()
-	restore_camera()
-end
-
-function flip_screen_pixelperfect()
+function flip_screen(pixel_perfect)
     love.graphics.setShader(pico8.display_shader)
     love.graphics.setCanvas()
     love.graphics.origin()
@@ -940,26 +898,54 @@ function flip_screen_pixelperfect()
 
     -- Get the dimensions of the LOVE window
     local window_w, window_h = love.graphics.getDimensions()
-    
-    -- Determine the maximum integer scale that keeps the pixel-perfect ratio
-    local scale_x = math.floor(window_w / pico8.resolution[1])
-    local scale_y = math.floor(window_h / pico8.resolution[2])
-    local scale = math.min(scale_x, scale_y)
+    local scale, x_offset, y_offset, pico8_w, pico8_h
 
-    -- Calculate the dimensions of the scaled pico8 screen
-    local pico8_w, pico8_h = pico8.resolution[1] * scale, pico8.resolution[2] * scale
+    if pixel_perfect then
+        -- Determine the maximum integer scale that keeps the pixel-perfect ratio
+        local scale_x = math.floor(window_w / pico8.resolution[1])
+        local scale_y = math.floor(window_h / pico8.resolution[2])
+        scale = math.min(scale_x, scale_y)
 
-    -- Calculate the offsets to center the scaled pico8 screen
-    local x_offset = math.floor((window_w - pico8_w) / 2)
-    local y_offset = math.floor((window_h - pico8_h) / 2)
+        -- Calculate the offsets to center the scaled pico8 screen
+        pico8_w, pico8_h = pico8.resolution[1] * scale, pico8.resolution[2] * scale
+        x_offset = math.floor((window_w - pico8_w) / 2)
+        y_offset = math.floor((window_h - pico8_h) / 2)
+		-- log("pico",pico8.resolution[1],pico8.resolution[2])
+		-- log("window",window_w,window_h)
+		-- log(scale,scale_x,scale_y,x_offset,y_offset)
+    else
+        -- Calculate the scaling factor to fit the pico8 screen inside the window
+        scale = math.min(window_w / pico8.resolution[1], window_h / pico8.resolution[2])
+
+        -- Calculate the offsets to center the scaled pico8 screen
+        pico8_w, pico8_h = pico8.resolution[1] * scale, pico8.resolution[2] * scale
+        x_offset = (window_w - pico8_w) / 2
+        y_offset = (window_h - pico8_h) / 2
+    end
 
     -- Draw the scaled pico8 screen centered on the LOVE display
-    love.graphics.draw(pico8.screen, x_offset, y_offset, 0, scale, scale)	
-	
-	-- Optionally draw the zbuffer
-	-- love.graphics.setShader(pico8.depthView)
-	-- pico8.depthView:send("depth",pico8.depth)
-    -- love.graphics.draw(pico8.depth, x_offset, y_offset, 0, scale, scale)	
+    love.graphics.draw(pico8.screen, x_offset, y_offset, 0, scale, scale)
+
+    -- love.graphics.setShader()
+	-- love.graphics.setColor(0,0,0,.2)
+	-- for y=y_offset-1,y_offset+pico8_h,scale do
+	-- love.graphics.line(x_offset,y,x_offset+pico8_w,y)
+	-- end
+	-- for x=x_offset-1,x_offset+pico8_w,scale do
+	-- love.graphics.line(x,y_offset,x,y_offset+pico8_h)
+	-- end
+	-- love.graphics.setColor(0,0,0,.1)
+	-- for y=y_offset,y_offset+pico8_h,scale do
+	-- love.graphics.line(x_offset,y,x_offset+pico8_w,y)
+	-- end
+	-- for x=x_offset,x_offset+pico8_w,scale do
+	-- love.graphics.line(x,y_offset,x,y_offset+pico8_h)
+	-- end
+
+    -- Optionally draw the zbuffer
+    -- love.graphics.setShader(pico8.depthView)
+    -- pico8.depthView:send("depth", pico8.depth)
+    -- love.graphics.draw(pico8.depth, x_offset, y_offset, 0, scale, scale)
 
     love.graphics.present()
 
@@ -970,12 +956,13 @@ function flip_screen_pixelperfect()
         gif_recording:frame(gif_canvas:newImageData())
     end
 
-    -- get ready for next time
+    -- Get ready for next time
     love.graphics.setShader(pico8.draw_shader)
     api.setPicoCanvas()
     restore_clip()
     restore_camera()
 end
+
 
 function love.focus(f)
 	focus = f or __pico_nofocus_update
@@ -1401,11 +1388,11 @@ function debugserverUpdate()
 		if msg~="" and msg~=nil then
 			if msg == "restart" then
 				love.event.quit( "restart" )
+				-- api.reload_cart()
+				-- api.run()
 				-- log('reloading cart')
 				-- if rawget(_G, 'jit') then jit.on() end -- turn on jit in case we hit jit off mode
 				-- collectgarbage()
-				-- api.reload_cart()
-				-- api.run()
 			elseif pico8.cart.game then
 				local a = pico8.cart.game.command(msg)
 				-- if a~=nil then pico8.cart.success(a) end
@@ -1415,6 +1402,7 @@ function debugserverUpdate()
 		end
 	end
 end
+api._debugserverUpdate = debugserverUpdate
 
 function love.quit()
 	-- log("QUIT + WRITE PROFILER FILE")
@@ -1435,6 +1423,7 @@ function love.run()
 
 	-- Main loop time.
 	return function()
+		-- local TOTAL_FRAME_TIME = love.timer.getTime()
 		-- api.mprof.push("frame") -- top level frame
 		-- api.mprof.push("pre-update")
 		local limiter_time = love.timer.getTime() -- for __pico_fps_limiter / pico.frameLimiter
@@ -1464,6 +1453,10 @@ function love.run()
 		-- Call update and draw
 		local render = false
 		while dt > pico8.frametime do
+			host_time = host_time + dt
+			if host_time > 65536 then
+				host_time = host_time - 65536
+			end
 			if paused or not focus then -- luacheck: ignore 542
 				-- nop
 			else
@@ -1519,16 +1512,18 @@ function love.run()
 
 				-- https://love2d.org/forums/viewtopic.php?p=254778
 
-				api.manualGC(timeLeft,1024*4)
+				api.manualGC(timeLeft/10,1024*4)
 
 				timeLeft = 1.0/pico8.frameLimiter - (love.timer.getTime()-limiter_time)
-				love.timer.sleep( timeLeft ) 
+				love.timer.sleep( timeLeft )
 			else
-				love.timer.sleep(0.000001)
+				-- love.timer.sleep(0.000001)
 			end
 		end
 		-- api.mprof.pop()
 		-- api.mprof.pop() -- top level frame
+		-- TOTAL_FRAME_TIME = love.timer.getTime() - TOTAL_FRAME_TIME
+		-- host_time = host_time + TOTAL_FRAME_TIME
 	end
 end
 
@@ -1636,12 +1631,26 @@ function love.errorhandler(msg)
 	local p = table.concat(err, "\n")
 	p = p:gsub("\t", ""):gsub("%[string \"(.-)\"%]", "%1")
 
+	local mx,my=0,0
+	local ms=""
+
 	local function draw()
 		if not love.graphics.isActive() then return end
 		local pos = 32
 		love.graphics.clear(89/255, 157/255, 220/255) -- blueish
 		love.graphics.clear(0.3,0.1,0.1) -- reddish
-		love.graphics.printf(p, pos, pos, love.graphics.getWidth() - pos)
+		-- love.graphics.printf(p, pos, pos, love.graphics.getWidth() - pos)
+		local d = pos
+		local h = love.graphics.getFont( ):getHeight()
+		for l in p:gmatch("(.-)\n") do
+			love.graphics.setColor( .8,.8,.8 )
+			if my>d and my<d+h then 
+				love.graphics.setColor( 1,1,0 ) 
+				ms = l
+			end
+			love.graphics.printf(l, pos, d, love.graphics.getWidth() - pos)
+			d = d + h
+		end
 		love.graphics.present()
 	end
 
@@ -1688,6 +1697,20 @@ function love.errorhandler(msg)
 				elseif pressed == 3 then
 					copyToClipboard()
 				end
+			elseif e == "mousepressed" then
+				log("mousepressed",e,a,b,c,ms)
+				-- local number = ms:match("schifahren%-game%-combined%.p8:(%d+)")
+				local base_path = "c:/projects/lua/schifahren/love/"
+				for file, number in ms:gmatch("([%w%-%._]+%.lua):(%d+)") do
+					love.system.openURL("vscode://file/" .. base_path .. file .. ":" .. number)
+				end
+				
+				for file, number in ms:gmatch("([%w%-%._]+%.p8):(%d+)") do
+					love.system.openURL("vscode://file/" .. base_path .. file .. ":" .. number)
+				end
+			elseif e == "mousemoved" then
+				-- log("mousemoved",e,a,b,c)
+				mx,my = a,b
 			end
 		end
 
