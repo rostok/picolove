@@ -33,6 +33,7 @@ api.love = love
 api.bit = bit
 api.bitser = require("bitser")
 api.debug = debug
+api.jit = jit
 api.os = os
 api.serpent = require("serpent")
 api.gifpic = require("gifpic")
@@ -46,6 +47,25 @@ local function color(c)
 		setColor(c)
 	end
 end
+
+-- counting colors
+-- local colorOrg = color
+-- local uniqueColorsCount = 0
+-- local uniqueColors = {}
+-- local uniqueColorFrame = -1
+-- local function color(c)
+-- 	colorOrg(c)
+--     if uniqueColorFrame ~= pico8.frames then 
+--         uniqueColors = {} 
+--         uniqueColorFrame = pico8.frames
+--         uniqueColorsCount = 0
+--     end
+--     if not uniqueColors[c] then 
+-- 		uniqueColorsCount = uniqueColorsCount + 1
+-- 		uniqueColors[c]=true
+-- 	end
+-- 	pico8.uniqueColorsCount = uniqueColorsCount
+-- end
 
 local function warning(msg)
 	log(debug.traceback("WARNING: " .. msg, 3))
@@ -105,6 +125,11 @@ end
 -- generic object to expose various api
 function api._profileReport(counter, filename, depth)
 	profileReport(counter, filename, depth)
+end
+
+-- return fullscreen state
+function api._getFullScreen(state)
+	return love.window.getFullscreen()
 end
 
 -- toggles, or if state is set, sets fullscreen
@@ -620,8 +645,11 @@ function api._font(num)
             glyphHeight = 6
         }
         -- Font 2: 4x6
+        glyphs = ""
+        for i = 32, 127 do glyphs = glyphs .. string.char(i) end
         api.FONTS[2] = {
-            font = love.graphics.newFont("unnamed-4x6.ttf", 6),
+            -- font = love.graphics.newFont("unnamed-4x6.ttf", 6),
+            font = love.graphics.newImageFont("unnamed-4x6.png", glyphs, 1),
             glyphWidth = 5,
             glyphHeight = 7
         }
@@ -652,6 +680,50 @@ end
 
 function api._glyphSize()
 	return api.GLYPH_W,api.GLYPH_H,api.GLYPH_FONT
+end
+
+function api.printIntoCanvas(text)
+    -- Get current canvas to restore later
+    local originalCanvas = love.graphics.getCanvas()
+    
+    -- Measure text to determine canvas size
+    local font = love.graphics.getFont() or love.graphics.newFont()
+    local textWidth = font:getWidth(text)
+    local textHeight = font:getHeight()
+
+    -- Create a new canvas sized to fit the text
+    local canvas = love.graphics.newCanvas(textWidth, textHeight)
+    
+    -- Render the text to the canvas
+    love.graphics.setCanvas(canvas)
+	love.graphics.setShader(pico8.text_shader)
+	love.graphics.push()
+    love.graphics.origin()
+    love.graphics.clear(0, 0, 0, 0)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.print(text, 0, 0)
+	love.graphics.pop()
+    love.graphics.setCanvas(originalCanvas)
+	love.graphics.setShader(pico8.draw_shader)
+    
+    -- Get image data from the canvas
+    local imageData = canvas:newImageData()
+    
+    -- Convert image data to 0,1 table
+    local w, h = imageData:getWidth(), imageData:getHeight()
+    local tableData = {}
+
+    for y = 0, h - 1 do
+        tableData[y + 1] = {}
+        for x = 0, w - 1 do
+            local r, g, b, a = imageData:getPixel(x, y)
+            -- If alpha > 0, set to 1 (text), otherwise 0 (empty space)
+            tableData[y + 1][x + 1] = (r > 0) and 1 or 0
+        end
+    end
+
+    -- Return the table, width, and height
+    return tableData, w, h
 end
 
 function api.print0(...)
@@ -732,7 +804,11 @@ function api.print(...)
 	local to_print = tostring(api.tostr(str))
 
 	-- diactrics replacement
-	-- for key, value in pairs(api.glyph_diactrics) do to_print = to_print:gsub(key, value) end
+	-- comment this to remove diactrics substitution
+	for key, value in pairs(api.glyph_diactrics) do to_print = to_print:gsub(key, value) end
+
+	-- sanitize remaining utf8 multibyte characters
+	to_print = to_print:gsub("[\128-\191][\128-\191]*[\194-\244][\128-\191]*", " "):gsub("[%z\1-\127]", "%0")
 
 	to_print=to_print:gsub('.', function (c)
 		-- print(c, string.byte(c), pico8_glyphs[string.byte(c)])
@@ -778,6 +854,7 @@ api.loadstring = loadstring
 api.dofile = dofile
 api.load = load
 api.pcall = pcall
+api.utf8 = require("utf8")
 
 function api.cursor(x, y, col)
 	if col then
@@ -1848,6 +1925,7 @@ end
 -- draw zbuffered polygon, tab values are {x,y,z}
 -- with z being 0..1 or smaller as in setZ()
 -- buffer passed to mesh are x,y,0,z with texure-v acting as z
+-- love Mesh vertices are x,y,u,v,r,g,b,alfa
 function api.meshpolygon(tab)
 	for i = 1, #tab do
 		local z = tab[i][4]
@@ -2525,7 +2603,8 @@ function api.eval(code)
         end
     end
 
-    setfenv(f, pico8.cart)
+    -- setfenv(f, pico8.cart)
+	setfenv(f, pico8.cart._ENV)
 
     -- Execute the function in protected mode to catch errors
     local success, result = pcall(f)
@@ -2579,6 +2658,7 @@ function api.run()
 	if not cartname then
 		return
 	end
+	host_time = 0
 	api.setPicoCanvas()
 	love.graphics.setShader(pico8.draw_shader)
 	restore_clip()
@@ -2701,8 +2781,13 @@ function api.help()
 	api.print("")
 end
 
+function api.ht()
+    return host_time
+end
+
 function api.time()
 	return pico8.frames/(pico8.fps or 30)
+	-- return host_time
 end
 api.t = api.time
 
@@ -2768,8 +2853,13 @@ function api.isDown(...)
 	return false
 end
 
--- clears pressed key state
+-- clears pressed key state, no arg will clear all keys
 function api.unpress(...)
+	if select("#",...)==0 then
+		pico8.keys = {}
+		pico8.last_keys = {}
+		return
+	end
 	for i, arg in ipairs({...}) do pico8.keys[arg]=false end
 end
 
@@ -3156,7 +3246,8 @@ function api.split(str, sep, conv_nums)
     if sep == "." then sep = "%." end -- escape the dot character in the pattern
 	conv_nums=(conv_nums==nil) and true or conv_nums
 	local tbl={}
-	for val in string.gmatch(str, '(.-)'..sep) do
+	if sep=="" then sep = "." else sep = "(.-)"..sep end
+	for val in string.gmatch(str, sep) do
 		if conv_nums  and tonumber(val) ~= nil then
 			val=tonumber(val)
 		end
@@ -3202,6 +3293,82 @@ function api.manualGC(time_budget, memory_ceiling, disable_otherwise)
 	if disable_otherwise then
 		collectgarbage("stop")
 	end
+end
+
+local file_cache = {}
+
+local function getSourceLines(source)
+	if source:sub(1, 1) ~= "@" then source = "@"..source end
+    if file_cache[source] then
+        return file_cache[source]
+    end
+
+    local lines = {}
+    if source:sub(1, 1) == "@" then
+        local filename = source:sub(2)
+        local file = io.open(filename, "r")
+		-- print("READ",filename)
+        if file then
+            for line in file:lines() do
+                table.insert(lines, line)
+            end
+            file:close()
+            file_cache[source] = lines
+        end
+    else
+        for l in source:gmatch("(.-)\n") do
+            table.insert(lines, l)
+        end
+        file_cache[source] = lines
+    end
+    return lines
+end
+
+api.traceDebugOn = function(maxlevel, minlevel)
+    -- Disable JIT so that the hook works as expected.
+    api.jit.off()
+    print("---@diagnostic disable")
+
+    -- Helper function to determine the current stack depth for the traced function.
+    -- We start at level 2 because level 1 is the hook function itself.
+    local function getCurrentStackLevel()
+        local level = 2
+        local count = 0
+        while api.debug.getinfo(level) do
+            count = count + 1
+            level = level + 1
+        end
+        return count
+    end
+
+    -- Set a debug hook that triggers on each executed line.
+    api.debug.sethook(function(event, line)
+        -- Get the current stack level (excluding the hook function itself).
+        local currentLevel = getCurrentStackLevel()
+        -- If minlevel is given and currentLevel is lower than minlevel, skip logging.
+        if minlevel and currentLevel < minlevel then
+            return
+        end
+        -- If maxlevel is given and currentLevel is higher than maxlevel, skip logging.
+        if maxlevel and currentLevel > maxlevel then
+            return
+        end
+
+        local info = api.debug.getinfo(2, "nSl")
+        if info then
+            local source = info.source or "[unknown]"
+            -- (funcname is available as info.name but not used in the print below)
+            local src_lines = getSourceLines(source)
+            local executing_line = src_lines[info.currentline] or "[line unavailable]"
+            print(string.format("--[[%s:%d]] %s", source, info.currentline, executing_line))
+        end
+    end, "l")
+end
+
+api.traceDebugOff = function()
+    api.debug.sethook()
+    api.jit.on()
+    -- print("JIT enabled, tracing disabled")
 end
 
 api.lognl = io.write
