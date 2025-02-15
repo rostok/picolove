@@ -53,10 +53,17 @@ function gifpic:clear(color)
     end
 end
 
--- pixel set at x,y post with color index
+-- pixel set at x,y post with color index, 0 based
 function gifpic:pset(x, y, color)
     if(y>=0 and y<self.height and x>=0 and x<self.width) then
 		self.pixels[y][x] = color
+    end
+end
+
+-- get pixel at x,y
+function gifpic:pget(x, y, color)
+    if(y>=0 and y<self.height and x>=0 and x<self.width) then
+		return self.pixels[y][x]
     end
 end
 
