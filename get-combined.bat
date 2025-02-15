@@ -12,6 +12,7 @@ set seconds=%datetime:~12,2%
 set a=%year%%month%%day%-%hours%%minutes%
 if exist schifahren-game-combined.p8 ( copy schifahren-game-combined.p8 trash\schifahren-game-combined-%a%.p8 )
 ::call shrinko8 --input-count pico8\schifahren-game.p8 schifahren-game-combined.p8 
-call shrinko8 --no-minify-rename --no-minify-spaces --no-minify-lines --no-minify-comments --no-minify-tokens --input-count pico8\schifahren-game.p8 schifahren-game-combined.p8 
+::call shrinko8 --no-minify-rename --no-minify-spaces --no-minify-lines --no-minify-comments --no-minify-tokens --input-count pico8\schifahren-game.p8 schifahren-game-combined.p8 
+python combinelua.py pico8/schifahren-game.p8 schifahren-game-combined.p8 
 
 :: --input-count -c 
