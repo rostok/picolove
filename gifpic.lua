@@ -22,11 +22,13 @@ function gifpic.new(w, h, palette)
     self.height = h
     self.palette = {}
     -- copy the palette by hand to make sure 1st color index is 1 not 0
-    for i = (palette[0]~=nil and 0 or 1),#palette do
-        local sc = palette[i]
-        local dc = {}
-        for _,rgb in pairs(sc) do dc[#dc+1] = rgb end
-        self.palette[#self.palette+1] = dc
+    if palette then
+        for i = (palette[0]~=nil and 0 or 1),#palette do
+            local sc = palette[i]
+            local dc = {}
+            for _,rgb in pairs(sc) do dc[#dc+1] = rgb end
+            self.palette[#self.palette+1] = dc
+        end
     end
     self:clear()
     local ps = #self.palette
@@ -40,7 +42,7 @@ end
 
 function gifpic:clear(color)
     self.pixels = {}
-    color = color or 0 -- Initialize all pixels to the first color index
+    -- color = color or 0 -- Initialize all pixels to the first color index
     local w,h = self.width, self.height
     for y = 0, h - 1 do
 		local row = {}
@@ -64,6 +66,89 @@ end
 function gifpic:pget(x, y, color)
     if(y>=0 and y<self.height and x>=0 and x<self.width) then
 		return self.pixels[y][x]
+    end
+end
+
+-- Draw a line from (x1,y1) to (x2,y2) using Bresenham's algorithm
+function gifpic:line(x1, y1, x2, y2, color)
+    local dx = math.abs(x2 - x1)
+    local dy = math.abs(y2 - y1)
+    local sx = (x1 < x2) and 1 or -1
+    local sy = (y1 < y2) and 1 or -1
+    local err = dx - dy
+
+    while true do
+        self:pset(x1, y1, color)
+        if x1 == x2 and y1 == y2 then break end
+        local e2 = 2 * err
+        if e2 > -dy then
+            err = err - dy
+            x1 = x1 + sx
+        end
+        if e2 < dx then
+            err = err + dx
+            y1 = y1 + sy
+        end
+    end
+end
+
+-- Draw a circle outline centered at (x,y) with radius r
+function gifpic:circ(x, y, r, color)
+    local x0 = 0
+    local y0 = r
+    local d = 3 - 2 * r
+    while x0 <= y0 do
+        self:pset(x + x0, y + y0, color)
+        self:pset(x - x0, y + y0, color)
+        self:pset(x + x0, y - y0, color)
+        self:pset(x - x0, y - y0, color)
+        self:pset(x + y0, y + x0, color)
+        self:pset(x - y0, y + x0, color)
+        self:pset(x + y0, y - x0, color)
+        self:pset(x - y0, y - x0, color)
+        if d < 0 then
+            d = d + 4 * x0 + 6
+        else
+            d = d + 4 * (x0 - y0) + 10
+            y0 = y0 - 1
+        end
+        x0 = x0 + 1
+    end
+end
+
+-- Draw a filled circle centered at (x,y) with radius r
+function gifpic:circfill(x, y, r, color)
+    local x0 = 0
+    local y0 = r
+    local d = 3 - 2 * r
+    while x0 <= y0 do
+        -- Draw horizontal lines between symmetric points
+        self:line(x - x0, y - y0, x + x0, y - y0, color)
+        self:line(x - x0, y + y0, x + x0, y + y0, color)
+        self:line(x - y0, y - x0, x + y0, y - x0, color)
+        self:line(x - y0, y + x0, x + y0, y + x0, color)
+        if d < 0 then
+            d = d + 4 * x0 + 6
+        else
+            d = d + 4 * (x0 - y0) + 10
+            y0 = y0 - 1
+        end
+        x0 = x0 + 1
+    end
+end
+
+-- Draw a rectangle outline from top-left (x1,y1) to bottom-right (x2,y2)
+function gifpic:rect(x1, y1, x2, y2, color)
+    self:line(x1, y1, x2, y1, color) -- top edge
+    self:line(x2, y1, x2, y2, color) -- right edge
+    self:line(x2, y2, x1, y2, color) -- bottom edge
+    self:line(x1, y2, x1, y1, color) -- left edge
+end
+
+-- Draw a filled rectangle from top-left (x1,y1) to bottom-right (x2,y2)
+function gifpic:rectfill(x1, y1, x2, y2, color)
+    for y = y1, y2 do
+        self:line(x1, y, x2, y, color)
     end
 end
 
