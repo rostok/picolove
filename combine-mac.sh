@@ -1,0 +1,1 @@
+python3 combinelua.py pico8/schifahren-game.p8 schifahren-game-combined.p8 
