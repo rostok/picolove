@@ -15,23 +15,30 @@ end
 local gifpic = {}
 gifpic.__index = gifpic
 
--- create new gif image, w/h are width/height, palette table is first color has 1 index
-function gifpic.new(w, h, palette)
+-- create new gif image, w/h are width/height
+-- palette's table first index can be 0 or 1, but stored are 0 based
+-- transparentIndex is optional
+function gifpic.new(w, h, palette, transparentIndex)
     local self = setmetatable({}, gifpic)
     self.width = w
     self.height = h
+    self.transparentIndex = transparentIndex -- Store the index
+    if self.transparentIndex and palette[0]==nil then self.transparentIndex = self.transparentIndex - 1 end
     self.palette = {}
     -- copy the palette by hand to make sure 1st color index is 1 not 0
-    if palette then
-        for i = (palette[0]~=nil and 0 or 1),#palette do
-            local sc = palette[i]
-            local dc = {}
-            for _,rgb in pairs(sc) do dc[#dc+1] = rgb end
-            self.palette[#self.palette+1] = dc
-        end
+    palette = palette or {[0]={0,0,0},{255,255,255}}
+    local j = 0
+    for i = (palette[0]~=nil and 0 or 1),#palette do
+        local sc = palette[i]
+        local dc = {}
+        for _,rgb in pairs(sc) do dc[#dc+1] = rgb end
+--        self.palette[j] = dc
+        self.palette[#self.palette+1] = dc
+        j = j + 1
     end
-    self:clear()
-    local ps = #self.palette
+    self.colors = j
+    self:clear(0)
+    local ps = self.colors
     if ps<2^math.ceil(log2(ps)) then
         for i=ps+1,2^math.ceil(log2(ps)) do
             self.palette[i] = {0,0,0}
@@ -40,10 +47,12 @@ function gifpic.new(w, h, palette)
     return self
 end
 
+-- prepare gifpic canvas and, if provided, set the color (0 by default)
 function gifpic:clear(color)
     self.pixels = {}
-    -- color = color or 0 -- Initialize all pixels to the first color index
+    color = color or 0 -- Initialize all pixels to the first color index
     local w,h = self.width, self.height
+    color = color % self.colors
     for y = 0, h - 1 do
 		local row = {}
 		self.pixels[y]=row
@@ -57,13 +66,15 @@ end
 
 -- pixel set at x,y post with color index, 0 based
 function gifpic:pset(x, y, color)
+    x = x - x%1
+    y = y - y%1
     if(y>=0 and y<self.height and x>=0 and x<self.width) then
-		self.pixels[y][x] = color
+		self.pixels[y][x] = ( color or 0 ) % self.colors
     end
 end
 
 -- get pixel at x,y
-function gifpic:pget(x, y, color)
+function gifpic:pget(x, y)
     if(y>=0 and y<self.height and x>=0 and x<self.width) then
 		return self.pixels[y][x]
     end
@@ -161,6 +172,7 @@ function gifpic:save(filename)
 
     -- Logical Screen Descriptor, Logical Screen Width + Height
     file:write(num2str(self.width), num2str(self.height))
+
     -- packed field
     file:write(string.char(0xF0 + math.ceil(log2(#self.palette)-1)))
     --  Background Color Index ,  Pixel Aspect Ratio
@@ -171,7 +183,15 @@ function gifpic:save(filename)
         file:write(string.char(color[1], color[2], color[3]))
     end
 
-	file:write("\33\249\4\4\3\0\0\0")
+    if self.transparentIndex and self.transparentIndex>=0 and self.transparentIndex<#self.palette then
+        -- Write Graphic Control Extension with transparency enabled.
+        -- Packed field byte is 5 (....0101) to set the transparency flag.
+        -- The color index is 0-based.
+        file:write("\33\249\4\5\3\0" .. string.char(self.transparentIndex) .. "\0")
+    else
+        -- Original hardcoded block for no transparency.
+        file:write("\33\249\4\4\3\0\0\0")
+    end
     
     local x0,y0,x1,y1 = 0,0,self.width-1,self.height-1
 	file:write("\44"..num2str(x0)..num2str(y0)..num2str(x1-x0+1)..num2str(y1-y0+1).."\0")
