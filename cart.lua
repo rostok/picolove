@@ -518,4 +518,117 @@ function patch_lua(lua, onlyglyphs)
 	return patched
 end
 
+-- faster version
+-- Assume pico8_glyphs is defined elsewhere, e.g.:
+-- pico8_glyphs = {"➡️", "⬅️", "⬆️", "⬇️", "🅾️", "❎", "★", "♥", "♪", "웃", "⌂", "😐", "🙂", "🙁", "カ", "タ", "コ", "ン"}
+-- Assume util.lookupify is defined as in the original snippet
+-- local util = {
+--   lookupify = function(list)
+--     local set = {}
+--     for _, v in ipairs(list) do
+--       set[v] = true
+--     end
+--     return set
+--   end
+-- }
+-- Assume parse.ParseLua and format are defined elsewhere
+
+-- Helper function to escape Lua pattern magic characters
+local function escape_lua_pattern(s)
+    -- Escapes: ( ) . % + - * ? [ ] ^ $
+    -- Also need to escape null characters if they could be in glyphs, though unlikely for pico8
+    return s:gsub("([%^$%(%)%%%.%[%]%*%+%-%?])", "%%%1") -- %0 for null if needed
+end
+
+-- Cache for precomputed data to avoid recomputing on every call if pico8_glyphs doesn't change
+local precomputed_glyph_data_cache = nil
+local last_pico8_glyphs_ref = nil -- To detect if pico8_glyphs itself changed
+
+local function get_precomputed_glyph_data(current_pico8_glyphs)
+    if precomputed_glyph_data_cache and last_pico8_glyphs_ref == current_pico8_glyphs then
+        return precomputed_glyph_data_cache
+    end
+
+    local glyph_data = {}
+    if not current_pico8_glyphs or #current_pico8_glyphs == 0 then
+        -- Handle empty or nil pico8_glyphs
+        precomputed_glyph_data_cache = { patterns_str = nil, replacements_map = {} }
+        last_pico8_glyphs_ref = current_pico8_glyphs
+        return precomputed_glyph_data_cache
+    end
+
+    -- 1. Create a list of glyphs with their original index and length
+    for i, glyph_str in ipairs(current_pico8_glyphs) do
+        table.insert(glyph_data, {
+            text = glyph_str,
+            original_index = i,
+            len = #glyph_str -- Byte length, crucial for sorting
+        })
+    end
+
+    -- 2. Sort by glyph length, descending (longer glyphs first)
+    table.sort(glyph_data, function(a, b)
+        return a.len > b.len
+    end)
+
+    -- 3. Build patterns array and replacement map
+    local patterns = {}
+    local replacements_map = {}
+    for _, data in ipairs(glyph_data) do
+        local escaped_glyph = escape_lua_pattern(data.text)
+        table.insert(patterns, escaped_glyph)
+        -- The key for the map is the *original* glyph text,
+        -- as this is what gsub will pass to the replacement function.
+        replacements_map[data.text] = string.char(data.original_index)
+    end
+
+    local patterns_str = table.concat(patterns, "|")
+
+    precomputed_glyph_data_cache = {
+        patterns_str = patterns_str,
+        replacements_map = replacements_map
+    }
+    last_pico8_glyphs_ref = current_pico8_glyphs
+    return precomputed_glyph_data_cache
+end
+
+
+function patch_lua(lua, onlyglyphs)
+    --replace glyphs with respective ascii chars
+
+    if not pico8_glyphs or #pico8_glyphs == 0 then
+        -- No glyphs to replace, skip this part
+        if onlyglyphs then return lua end
+    else
+        local precomputed = get_precomputed_glyph_data(pico8_glyphs)
+
+        if precomputed.patterns_str and precomputed.patterns_str ~= "" then
+            -- The replacement function looks up the matched glyph string
+            -- in our precomputed map.
+            -- `gsub` will pass the actual matched substring (the glyph)
+            -- to this function.
+            lua = lua:gsub(precomputed.patterns_str, function(matched_glyph)
+                return precomputed.replacements_map[matched_glyph] or matched_glyph -- Fallback, though should always find
+            end)
+        end
+    end
+
+    if onlyglyphs then return lua end
+
+    -- not strictly required, but should help improve performance
+    lua = "local _ENV = _ENV " .. lua
+
+    -- Assuming parse.ParseLua and format are external and their performance is not the target here
+    local status, ast = parse.ParseLua(lua)
+    if not status then
+        error(ast)
+    end
+    local status_format, patched = format(ast) -- Renamed status to avoid conflict
+    if not status_format then
+        error(patched)
+    end
+    -- print(patched)
+    return patched
+end
+
 return cart
