@@ -206,7 +206,7 @@ function profile.flameHTML(dataFile,extraContent)
   }
   </style>
   <body>
-  <div id=scd><pre>]]..extraContent..[[</pre><input id=scale value=0 size=1></input>
+  <div id=scd>]]..extraContent..[[<input id=scale value=0 size=1></input>
   <a href=# onclick='scale=width/maxtime;go();'>0</a>
   <a href=# onclick='scale=100;go();'>100</a>
   <a href=# onclick='scale=250;go();'>250</a>
@@ -464,6 +464,33 @@ function profile.report(n)
     sz = sz..' | '..table.concat(out, ' | \n | ')..' | \n'
   end
   return sz..row
+end
+
+function profile.reportHTML(n,attr)
+  local report = profile.query(n)
+  local out = {}
+  table.insert(out, "<table "..(attr or "")..">")
+  -- header row
+  local headers = { "#", "Function", "Calls", "Time (s)", "Per Call (ms)", "Code" }
+  table.insert(out, "<tr>")
+  for i, h in ipairs(headers) do
+    table.insert(out, "<th>" .. h .. "</th>")
+  end
+  table.insert(out, "</tr>\n")
+  -- data rows
+  for i, row in ipairs(report) do
+    table.insert(out, "<tr>")
+    for j = 1, 6 do
+      local s = row[j]
+      if j == 4 or j == 5 then
+        s = string.format("%.6f", s)
+      end
+      table.insert(out, "<td>" .. tostring(s) .. "</td>")
+    end
+    table.insert(out, "</tr>\n")
+  end
+  table.insert(out, "</table>\n")
+  return table.concat(out)
 end
 
 -- store all internal profiler functions
