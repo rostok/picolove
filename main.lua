@@ -5,10 +5,10 @@ profile = require("profile")
 
 
 io.write("\27[2J\27c\27[H") -- clear screen/terminal
-print("picolove hello @ ".._VERSION.." & Love2D "..table.concat({love.getVersion()},"."))
+print("picolove hello @ ".._VERSION.." / "..jit.version.." & Love2D "..table.concat({love.getVersion()},"."))
 -- local debugserver = nil
 local debugserver = require("debugserver")
-if not debugserver.startServer(55555) then debugserver=nil end
+if not debugserver.startServer(5555) then debugserver=nil end
 -- sometimes 1234 is exluded, check with netsh interface ipv4 show excludedportrange protocol=tcp
 -- use this : net stop winnat & net start winnat
 require("strict")
@@ -17,6 +17,8 @@ local QueueableSource = require("QueueableSource")
 local bit = require("bit")
 local api = require("api")
 local cart = require("cart")
+local utf8 = require("utf8")
+
 --------------------------------------------------------
 -- this requires jprof library, should be run with run-jprof.bat  and possibly renamed love to xlove as F5 in vscode may terminate love.exe
 -- PROF_CAPTURE = true
@@ -72,7 +74,9 @@ pico8 = {
 		[28] = {   6,    90, 	181, 	255 },
 		[29] = { 117,	 70, 	101, 	255 },
 		[30] = { 255,	110,	 89, 	255 },
-		[31] = { 255,	157, 	129, 	255 }
+		[31] = { 255,	157, 	129, 	255 },
+		-- [32] = { 113,	123, 	102, 	255 }
+		[32] = { 113-10,	123-10, 	102-10, 	255 }
 	},
 	color = nil,
 	spriteflags = {},
@@ -135,6 +139,53 @@ pico8 = {
 	spritesheet_changed = false,
 	line_endpoint_x = 0,
 	line_endpoint_y = 0,
+	__stats = {
+		buflen = 30,
+		maxGCsteps = 100, -- max number of garbage collector steps in manuaGC
+		lastGCsteps = -1, -- last gc steps
+		budgets   = {0},  -- time budgets for gc
+		steps     = {0},  -- steps taken
+		gcindex   = 1,    -- index for gc budgets/steps tables
+		draws     = {0},  -- table with draw() times
+		dindex    = 1,    -- index for that table
+		updates   = {0},  -- table with update() times
+		uindex    = 1,
+		updateGCStats = function (self, steps, budget)
+			self.budgets[self.gcindex] = budget
+			self.steps  [self.gcindex] = steps
+			self.index = self.gcindex + 1
+			if self.gcindex>self.buflen then self.gcindex = 1 end
+		end,
+		updateDStats = function (self, drawtime)
+			self.draws[self.dindex] = drawtime
+			if self.dindex>self.buflen then self.dindex = 1 end
+		end,
+		updateUStats = function (self, updatetime)
+			self.updates[self.uindex] = updatetime
+			if self.uindex>self.buflen then self.uindex = 1 end
+		end,
+		getStats = function(self)
+			local s, b, d, u = 0,0,0,0
+			for i=1,#self.steps do
+				s = s + self.steps[i]
+				b = b + self.budgets[i]
+			end
+			s = s / #self.steps
+			b = b / #self.budgets
+
+			for i=1,#self.draws do
+				d = d + self.draws[i]
+			end
+			d = d / #self.draws
+
+			for i=1,#self.updates do
+				u = u + self.updates[i]
+			end
+			u = u / #self.updates
+
+			return s, b, d, u
+		end
+	}
 }
 api.__pico8 = pico8
 pico8_glyphs = { [0] = "\0",
@@ -170,34 +221,12 @@ glyph_edgecases = {
 	["➡️"] = "➡",
 	["⬆️"] = "⬆",
 	["⬅️"] = "⬅",
-	["\a"] = "", -- bell is empty 
 	-- uncomment this to remove diactrics substitution
+	-- ["\a"] = "", -- \a is special p8scii escape character 
 	-- ["\b"] = "", -- bell is empty 
 }
 api.glyph_edgecases = glyph_edgecases
 -- switch 2 utf-8 character glyphs with the respective 1 character alternative
-
--- comment this to remove diactrics substitution
-api.glyph_diactrics = {
-	["ą"] = "a\b,",
-	["ę"] = "e\b,",
-	["ć"] = "c\b'",
-	["ń"] = "n\b'",
-	["ł"] = "l\b/",
-	["ó"] = "o\b'",
-	["ś"] = "s\b'",
-	["ż"] = "z\b'",
-	["ź"] = "z\b'",
-	["Ą"] = "A\b,",
-	["Ę"] = "E\b,",
-	["Ć"] = "C\b'",
-	["Ń"] = "N\b'",
-	["Ł"] = "L\b/",
-	["Ó"] = "O\b'",
-	["Ś"] = "S\b'",
-	["Ż"] = "Z\b'",
-	["Ź"] = "Z\b'",
-}
 
 local flr, abs = math.floor, math.abs
 
@@ -243,7 +272,7 @@ log = print
 
 function shdr_unpack(thing)
 	-- return unpack(thing, 0, 15)
-	return unpack(thing, 0, 31) -- 32 colors
+	return unpack(thing, 0, 63) -- 64 colors
 end
 
 function restore_clip()
@@ -256,7 +285,7 @@ end
 
 function setColor(c)
 	-- love.graphics.setColor(c / 15, 0, 0, 1)
-	love.graphics.setColor(c / 31, 0, 0, 1) -- 32 colors
+	love.graphics.setColor(c / 63, 0, 0, 1) -- 64 colors
 end
 
 function _loadCART(_cartname)
@@ -486,10 +515,10 @@ function love.load(argv)
 	pico8.draw_palette = {}
 	pico8.display_palette = {}
 	pico8.pal_transparent = {}
-	for i = 0, 15+16 do
+	for i = 0, 15+16+32 do
 		pico8.draw_palette[i] = i
 		pico8.pal_transparent[i] = i == 0 and 0 or 1
-		pico8.display_palette[i] = pico8.palette[i]
+		pico8.display_palette[i] = pico8.palette[i] or {0,0,0,0}
 	end
 
 	pico8.scanline_shader = love.graphics.newShader([[
@@ -528,7 +557,7 @@ int ditherPattern[16] = int[16](
 	3, 11,  1,  9,
 	15,  7, 13, 5
 );
-extern float palette[32];
+extern float palette[64];
 extern float z;
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
 	//gl_FragDepth = z;
@@ -537,7 +566,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 	gl_FragDepth = 1-(cz-(viewy-viewh/2))/viewh/3-0.3333333;
 	// lower z is closer, bigger is further,   
 	//int index = int(color.r*15.0+0.5);
-	int index = int(color.r*31.0+0.5); // 32 colors
+	int index = int(color.r*63.0+0.5); // -- 64 colors
 	float a = 1.0;
 	if (threshold>0) {
 		int u = int(mod(screen_coords.x + viewx,4));
@@ -546,7 +575,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 		if (ditherPattern[i]/15.0<=threshold) { a = 0.0; gl_FragDepth = 999; }
 	}
 	//return vec4(palette[index]/15.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component
-	return vec4(palette[index]/31.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component, 32 colors
+	return vec4(palette[index]/63.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component, -- 64 colors
 }]]
 
 	-- blue noise dithering
@@ -565,12 +594,12 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 
 	local draw_shader = [[
 		extern float threshold = 0; // alpha dithering level 0.0-1.0, 0 fully opaque, 1 fully transparent
-		extern int viewx = 0;
-		extern int viewy = 0;
+		extern float viewx = 0;
+		extern float viewy = 0;
 		//extern int vieww = 480;
 		extern int viewh = 270;
     	extern Image blueNoise; 
-		extern float palette[32];
+		extern float palette[64];
 		extern float z;
 
 		bool isNaN(float val) { return val != val; }
@@ -584,17 +613,17 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 			gl_FragDepth = unlerp( viewy+viewh*1.5, viewy-viewh*1.5, cz ); // extend view so 0..1 of z is below and benath of visible area
 			//gl_FragDepth = clamp(gl_FragDepth,0.0,1.0);
 			//int index = int(color.r*15.0+0.5);
-			int index = int(color.r*31.0+0.5); // 32 colors
+			int index = int(color.r*63.0+0.5); // -- 64 colors
 			float a = 1.0;
 			if (threshold!=0) {
 				vec2 bn;
-				bn.x = mod(screen_coords.x + viewx,256)/255;
-				bn.y = mod(screen_coords.y + viewy,256)/255;
+				bn.x = mod(floor(screen_coords.x) + floor(viewx),256)/255;
+				bn.y = mod(floor(screen_coords.y) + floor(viewy),256)/255;
 				if (threshold>0 && Texel(blueNoise,bn).x<=threshold) { a = 0.0; gl_FragDepth = 999; }
 				if (threshold<0 && Texel(blueNoise,bn).x>=-threshold) { a = 0.0; gl_FragDepth = 999; }
 			}
 			//return vec4(palette[index]/15.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component
-			return vec4(palette[index]/31.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component, 32 colors
+			return vec4(palette[index]/63.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component, -- 64 colors
 		}]]
 	-- blue noise ends
 
@@ -603,22 +632,22 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 	pico8.draw_shader:send("blueNoise", blueNoise)
 
 	pico8.sprite_shader = love.graphics.newShader([[
-extern float palette[32];
-extern float transparent[16];
+extern float palette[64];
+extern float transparent[64];
 
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
 	//int index = int(Texel(texture, texture_coords).r*15.0+0.5);
-	int index = int(Texel(texture, texture_coords).r*31.0+0.5); // 32 colors
+	int index = int(Texel(texture, texture_coords).r*63.0+0.5); // -- 64 colors
 	float alpha = transparent[index];
 	
 	//return vec4(palette[index]/15.0, 0.0, 0.0 ,alpha);
-	return vec4(palette[index]/31.0, 0.0, 0.0 ,alpha); // 32 colors
+	return vec4(palette[index]/63.0, 0.0, 0.0 ,alpha); // -- 64 colors
 }]])
 	pico8.sprite_shader:send("palette", shdr_unpack(pico8.draw_palette))
 	pico8.sprite_shader:send("transparent", shdr_unpack(pico8.pal_transparent))
 
 	pico8.text_shader = love.graphics.newShader([[
-extern float palette[32];
+extern float palette[64];
 
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
 	vec4 texcolor = Texel(texture, texture_coords);
@@ -626,20 +655,20 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 		return vec4(0.0,0.0,0.0,0.0);
 	}
 	//int index = int(color.r*15.0+0.5);
-	int index = int(color.r*31.0+0.5); // 32 colors
+	int index = int(color.r*63.0+0.5); // -- 64 colors
 	
 	// lookup the color in the palette by index
 	//return vec4(palette[index]/15.0, 0.0, 0.0, texcolor.a);
-	return vec4(palette[index]/31.0, 0.0, 0.0, texcolor.a); // 32 colors
+	return vec4(palette[index]/63.0, 0.0, 0.0, texcolor.a); // -- 64 colors
 }]])
 	pico8.text_shader:send("palette", shdr_unpack(pico8.draw_palette))
 
 	pico8.display_shader = love.graphics.newShader([[
-extern vec4 palette[32];
+extern vec4 palette[64];
 
 vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
 	//int index = int(Texel(texture, texture_coords).r*15.0+0.5);
-	int index = int(Texel(texture, texture_coords).r*31.0+0.5); // 32 colors
+	int index = int(Texel(texture, texture_coords).r*63.0+0.5); // -- 64 colors
 	
 	// lookup the color in the palette by index
 	return palette[index]/255.0;
@@ -773,8 +802,9 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 end
 
 function new_sandbox()
+	-- log("*** N E W  S A N D B O X ***")
 	local cart_env = {}
-
+	-- collectgarbage("collect")
 	for k, v in pairs(api) do
 		cart_env[k] = v
 	end
@@ -828,16 +858,16 @@ local function update_buttons()
 end
 
 
-function love.update(_)
+function love.update(frameDiff)
 	-- api.prof.push("frame")
 	pico8.frames=pico8.frames+1
 	update_buttons()
 
 	if __profiling.U>0 then profile.start() end
 	if pico8.cart._update60 then
-		pico8.cart._update60()
+		pico8.cart._update60(frameDiff)
 	elseif pico8.cart._update then
-		pico8.cart._update()
+		pico8.cart._update(frameDiff)
 	end
 	if __profiling.U>0 then profile.stop() end
 	
@@ -1183,7 +1213,6 @@ function love.keypressed(key)
 	elseif key == "r" and isCtrlOrGuiDown() and not isAltDown() then -- ctrl+r
 		log('reloading cart')
 		api.reload_cart()
-		api.run()
 		return
 	-- elseif key == "f7" and isAltDown() then
 	-- 	love.graphics.setCanvas()
@@ -1462,9 +1491,26 @@ function love.run()
 			else
 				-- api.mprof.push("update1")
 				-- will pass 0 if love.timer is disabled
+				local updateStart = love.timer.getTime()
 				if love.update then
-					love.update(pico8.frametime)
+					-- determine how many sub-updates to run this frame
+					local steps = 1
+
+					if (pico8.fastForwardFrames or 0) > 0 then
+						-- frame countdown mode
+						steps = pico8.fastForwardTemp or 1 -- fastForwardTemp works only when fastForwardFrames is set
+						pico8.fastForwardFrames = math.max(0, (pico8.fastForwardFrames or 0) - steps)
+					else
+						-- old behaviour
+						steps = pico8.forcedFastForward or pico8.fastForward or 1
+					end
+
+					-- run updates
+					for i = 1, steps do
+						love.update(pico8.frametime)
+					end
 				end
+				pico8.__stats:updateUStats(love.timer.getTime() - updateStart)
 				-- api.mprof.pop()
 				-- api.mprof.push("update-aud")
 				update_audio(pico8.frametime)
@@ -1487,9 +1533,11 @@ function love.run()
 		if render and love.graphics and love.graphics.isActive() then
 			love.graphics.origin()
 			if not paused and focus then
+				local drawStart = love.timer.getTime()
 				if love.draw then
 					love.draw()
 				end
+				pico8.__stats:updateDStats(love.timer.getTime() - drawStart)
 				--else
 				-- TODO: fix issue with leftover paused menu
 				--api.rectfill(64 - 4 * 4, 60, 64 + 4 * 4 - 2, 64 + 4 + 4, 1)
@@ -1512,9 +1560,14 @@ function love.run()
 
 				-- https://love2d.org/forums/viewtopic.php?p=254778
 
-				api.manualGC(timeLeft/10,1024*4)
+				-- api.manualGC(timeLeft/10,1024*4)
+				-- api.manualGC(timeLeft/5,1024*4)
+				-- api.manualGC(timeLeft/2,1024*8)
+				api.manualGC(timeLeft*0.9,1024*8)
+				-- api.manualGC(timeLeft,1024*4)
 
 				timeLeft = 1.0/pico8.frameLimiter - (love.timer.getTime()-limiter_time)
+				if pico8.disableFrameSleep then timeLeft = 0 end
 				love.timer.sleep( timeLeft )
 			else
 				-- love.timer.sleep(0.000001)
@@ -1527,9 +1580,33 @@ function love.run()
 	end
 end
 
-local utf8 = require("utf8")
+local function get_included_file_info(errLine, allLines)
+    -- Start with the main file context.
+    local stack = { { file = __pico_cart, content_start = 1 } }
+    for i = 1, errLine do
+        local line = allLines[i]
+        -- Check for an include start marker, e.g. "    -- /path/to/file.lua{"
+        local start_file = line:match("^%s*%-%-%s*([^%s]+){{{")
+        if start_file then
+            -- The actual included file content starts on the next line.
+            table.insert(stack, { file = start_file, content_start = i + 1 })
+        end
+        -- Check for an include end marker, e.g. "    -- }/path/to/file.lua"
+        local end_file = line:match("^%s*%-%-%s*}}}([^%s]+)")
+        if end_file and #stack > 1 then
+            local top = stack[#stack]
+            if top.file == end_file then
+                table.remove(stack, #stack)
+            end
+        end
+    end
+    local current = stack[#stack]
+    local orig_line = errLine - current.content_start + 1
+    return current.file, orig_line
+end
 
-function add_code_to_traceback(trace,temp)
+
+function add_code_to_traceback(trace,temp,replace)
 	temp = temp or "%1"
 	local lines = {}
 	for line in love.filesystem.lines(__pico_cart) do table.insert(lines, line) end
@@ -1542,14 +1619,22 @@ function add_code_to_traceback(trace,temp)
 	  local l = errMsg:match("%[string \"(.-)\"")
 	  local m = errMsg:match("%Error loading lua: (.-):%d+:")
       if l==__pico_cart or m==__pico_cart then
-        local lineNumber = tonumber(errMsg:gsub("(.-)Error ",""):match(":(%d+)"))
-        local line = lineNumber..":"..lines[lineNumber]
-		line = temp:match("(.-)%%1")..line..temp:match("%%1(.*)$")
-    	err[i] = err[i] .. line
-      end
+		local lineNumber = tonumber(errMsg:gsub("(.-)Error ",""):match(":(%d+)"))
+		local file, orig_line = get_included_file_info(lineNumber, lines)
+		local code_line = lines[lineNumber] or ""
+		local line_info = file .. ":" .. orig_line .. ": " .. code_line
+		line_info = temp:match("(.-)%%1")..line_info..temp:match("%%1(.*)$")
+		if replace and err[i]:match("(%[string \".-\"%]:%d+)") then
+			err[i] = err[i]:gsub("(%[string \".-\"%]:%d+)",line_info)
+		else
+			err[i] = err[i] .. line_info
+		end
+	  end
     end
 	return table.concat(err, "\n")
 end
+
+api.add_code_to_traceback = add_code_to_traceback
 
 local function error_printer(msg, layer)
     local trace = debug.traceback("Error: " .. tostring(msg), 1+(layer or 1))
@@ -1701,7 +1786,7 @@ function love.errorhandler(msg)
 				log("mousepressed",e,a,b,c,ms)
 				-- local number = ms:match("schifahren%-game%-combined%.p8:(%d+)")
 				local base_path = "c:/projects/lua/schifahren/love/"
-				for file, number in ms:gmatch("([%w%-%._]+%.lua):(%d+)") do
+				for file, number in ms:gmatch("([%w%-%._/\\]+%.lua):(%d+)") do
 					love.system.openURL("vscode://file/" .. base_path .. file .. ":" .. number)
 				end
 				
@@ -1732,7 +1817,12 @@ function profileReport(counter, filename, depth)
 	if counter>=0 then api.lognl("PROFILING ",counter,"  \r") end
 	if counter == 0 then
 		local report = profile.report(depth or 30)
-		report = add_code_to_traceback(report)
+		-- set tab separated clipboard
+		love.system.setClipboardText( (report.."\n"):gsub('[^\n]*%+%-[^\n]*\n', ''):gsub('|', '\t') )
+		-- report = "<pre>"..report.."</pre>"
+
+		local report = profile.reportHTML(depth or 30," cellpadding=1 cellspacing=1 style='font-size:small'")
+		report = add_code_to_traceback(report,nil,true)
 
 		local html = profile.flameHTML(nil,report)
 
@@ -1743,9 +1833,6 @@ function profileReport(counter, filename, depth)
 		-- api.writeFile(filename:gsub(".txt",".json"), profile.tracingJSON())
 		api.writeFile(filename:gsub(".txt",".html"), html)
 
-		-- set tab separated clipboard
-		-- log("clipboard set")
-		love.system.setClipboardText( (report.."\n"):gsub('[^\n]*%+%-[^\n]*\n', ''):gsub('|', '\t') )
 	end
 	return counter - 1
 end
