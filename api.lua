@@ -32,18 +32,26 @@ api.tonumber = tonumber
 api.love = love
 api.bit = bit
 api.bitser = require("bitser")
+api.utf8 = require("utf8")
+utf8 = api.utf8
+api.utf8string = require("utf8string")
+api.ustring = require("ustring/ustring")
 api.debug = debug
 api.jit = jit
 api.os = os
 api.serpent = require("serpent")
 api.gifpic = require("gifpic")
 api.ffi = require("ffi")
+api.love_thread = require("love.thread")
+api.love_system = require("love.system")
+api.love_timer = require("love.timer")
+api._print = print
 
 local function color(c)
 	if c ~= pico8.color then -- rostok: skip if this is current color
-		-- c = flr(c or 0) % 16
-		c = flr(c or 0) % 32
-		pico8.color = c
+		-- c = flr(c or 0) % 32
+		c = flr(c or 0)
+		pico8.color = c/6
 		setColor(c)
 	end
 end
@@ -71,7 +79,7 @@ local function warning(msg)
 	log(debug.traceback("WARNING: " .. msg, 3))
 end
 
-local function _horizontal_line_old(lines, x0, y, x1)
+local function _horizontal_line(lines, x0, y, x1)
 	table.insert(lines, { x0 + 0.5, y + 0.5, x1 + 1.5, y + 0.5 })
 end
 
@@ -274,12 +282,12 @@ end
 
 function api.cls(col)
 	-- col = flr(tonumber(col) or 0) % 16
-	col = flr(tonumber(col) or 0) % 32 -- 32 colors
+	col = flr(tonumber(col) or 0) -- 64 colors
 
 	pico8.clip = nil
 	love.graphics.setScissor()
 	-- love.graphics.clear(col / 15, 0, 0, 1, true, true)
-	love.graphics.clear(col / 31, 0, 0, 1, true, true) -- 32 colors
+	love.graphics.clear(col / 63, 0, 0, 1, true, true) -- 64 colors
 	pico8.cursor = { 0, 0 }
 end
 
@@ -558,7 +566,15 @@ function api.pset(x, y, col)
 end
 
 function api.psets(col,...)
-	if col ~= pico8.color then color(col) end -- rostok: skip color if same
+	-- if col ~= pico8.color then color(col) end -- rostok: skip color if same
+
+	-- hard coded inline color change
+	col = col % 64 - col % 1 -- 64 colors
+	if col ~= pico8.color then
+		pico8.color = col
+		setColor(col)
+	end
+
 	love.graphics.points(...)
 end
 
@@ -578,11 +594,13 @@ function api.pget(x, y)
 			api._canvasFrameNumber = pico8.frames
 			love.graphics.setCanvas()
 			api._canvasGrabbed = pico8.screen:newImageData()
+			api._canvasGrabbedW,api._canvasGrabbedH = api._canvasGrabbed:getDimensions()
 			api.setPicoCanvas()
 		end
-		local r = api._canvasGrabbed:getPixel(flr(x), flr(y))
+		local r = 0
+		if x >= 0 and x < api._canvasGrabbedW and y >= 0 and y < api._canvasGrabbedH then r = api._canvasGrabbed:getPixel(flr(x), flr(y)) end
 		-- return r*15
-		return flr(r*31+0.5) -- 32 colors
+		return flr(r*63+0.5) -- 64 colors
 	end
 	return -1
 end
@@ -601,7 +619,7 @@ function api.pgetOLD(x, y)
 		api.setPicoCanvas()
 		local r = __screen_img:getPixel(flr(x), flr(y))
 		-- return r*15
-		return r*31+0.5 -- 32 colors
+		return r*63+0.5 -- 64 colors
 	end
 	-- warning(string.format("pget out of screen %d, %d", x, y))
 	return 0
@@ -619,6 +637,139 @@ local function tostring(str)
 	--return (tostring_org(str):gsub("[^%z\32-\127]", "8"))
 end
 
+-- comment this to remove diactrics substitution
+api.glyph_diactrics = {
+  ["é"] = "e",
+  ["É"] = "E",
+  ["è"] = "e",
+  ["È"] = "E",
+  ["ê"] = "e",
+  ["Ê"] = "E",
+  ["ë"] = "e",
+  ["Ë"] = "E",
+  ["à"] = "a",
+  ["À"] = "A",
+  ["â"] = "a",
+  ["Â"] = "A",
+  ["ä"] = "a",
+  ["Ä"] = "A",
+  ["î"] = "i",
+  ["Î"] = "I",
+  ["ï"] = "i",
+  ["Ï"] = "I",
+  ["ô"] = "o",
+  ["Ô"] = "O",
+  ["ö"] = "o",
+  ["Ö"] = "O",
+  ["ù"] = "u",
+  ["Ù"] = "U",
+  ["û"] = "u",
+  ["Û"] = "U",
+  ["ü"] = "u",
+  ["Ü"] = "U",
+  ["ç"] = "c",
+  ["Ç"] = "C",
+  ["ÿ"] = "y",
+	["ą"] = "a\as;\ax-2;\ayh;\ai;\ap;",
+	["ę"] = "e\as;\ax-2;\ayh;\ai;\ap;",
+	["ć"] = "c\as;\b\ax3;\ay1;\ai;\ax1;\ay-1;\ai;\ap;",
+	["ń"] = "n\as;\b\ax3;\ay1;\ai;\ax1;\ay-1;\ai;\ap;",
+	["ł"] = "l\as;\ax-2;\ay3;\ai;\ax1;\ay-1;\ai;\ap;",
+	["ó"] = "o\as;\b\ax3;\ay1;\ai;\ap;",
+	["ś"] = "s\as;\b\ax3;\ay1;\ai;\ap;",
+	["ż"] = "z\as;\b\ax3;\ay1;\ai;\ap;",
+	["ź"] = "z\as;\b\ax3;\ay1;\ai;\ax1;\ay-1;\ai;\ap;",
+	["Ą"] = "A\as;\ax-2;\ayh;\ai;\ap;",
+	["Ę"] = "E\as;\ax-2;\ayh;\ai;\ap;",
+	["Ć"] = "C\as;\b\ax3;\ay0;\ai;\ap;",
+	["Ń"] = "N\as;\ax-3;\ai;\ap;",
+	["Ł"] = "L\as;\ax-3;\ay3;\ai;\ax1;\ay-1;\ai;\ap;",
+	["Ó"] = "O\as;\b\ax3;\ai;\ap;",
+	["Ś"] = "S\as;\ax-2;\ai;\ap;",
+	["Ż"] = "Z\as;\b\ax2;\ai;\ap;",
+	["Ź"] = "Z\as;\b\ax3;\ai;\ap;",
+	["_font0"] = {
+	   ["ą"] = "a\as;\ax-2;\ayh;\ai;\ap;",
+	   ["ę"] = "e\as;\ax-2;\ayh;\ai;\ap;",
+	   ["ć"] = "c\as;\b\ax3;\ai;\ap;",
+	   ["ń"] = "n\as;\b\ax3;\ai;\ap;",
+	   ["ł"] = "l\as;\ax-2;\ay3;\ai;\ax1;\ay-1;\ai;\ap;",
+	   ["ó"] = "o\as;\b\ax2;\ai;\ap;",
+	   ["ś"] = "s\as;\b\ax2;\ai;\ap;",
+	   ["ż"] = "z\as;\b\ax2;\ai;\ap;",
+	   ["ź"] = "z\as;\b\ax3;\ai;\ap;",
+	   ["Ą"] = "A\as;\ax-2;\ayh;\ai;\ap;",
+	   ["Ę"] = "E\as;\ax-2;\ayh;\ai;\ap;",
+	   ["Ć"] = "C\as;\b\ax2;\ay1;\ai;\ap;",
+	   ["Ń"] = "N\as;\ax-1;\ay1;\ai;\ap;",
+	   ["Ł"] = "L\as;\ax-2;\ay3;\ai;\ax1;\ay-1;\ai;\ap;",
+	   ["Ó"] = "O\as;\b\ax2;\ay1;\ai;\ap;",
+	   ["Ś"] = "S\as;\ax-2;\ay1;\ai;\ap;",
+	   ["Ż"] = "Z\as;\b\ax2;\ay1;\ai;\ap;",
+	   ["Ź"] = "Z\as;\b\ax3;\ay1;\ai;\ap;",
+	},
+	["_font3"] = {
+	   ["ą"] = "a\as;\ax-2;\ay12;\ai;\ax1;\ay1;\ai;\ap;",
+	   ["ę"] = "e\as;\ax-2;\ay12;\ai;\ax1;\ay1;\ai;\ap;",
+	   ["Ą"] = "A\as;\ax-2;\ay12;\ai;\ax1;\ay1;\ai;\ap;",
+	   ["Ę"] = "E\as;\ax-2;\ay12;\ai;\ax1;\ay1;\ai;\ap;",
+	   ["ć"] = "c\as;\ax-4;\ay4;\ai;\ay-1;\ax1;\ai;\ap;",
+	   ["ó"] = "o\as;\ax-4;\ay4;\ai;\ay-1;\ax1;\ai;\ap;",
+	   ["ś"] = "s\as;\ax-4;\ay4;\ai;\ay-1;\ax1;\ai;\ap;",
+	   ["ń"] = "n\as;\ax-4;\ay4;\ai;\ay-1;\ax1;\ai;\ap;",
+	   ["ź"] = "z\as;\ax-4;\ay4;\ai;\ay-1;\ax1;\ai;\ap;",
+	   ["Ć"] = "C\as;\ax-4;\ay2;\ai;\ay-1;\ax1;\ai;\ap;",
+	   ["Ó"] = "O\as;\ax-4;\ay2;\ai;\ay-1;\ax1;\ai;\ap;",
+	   ["Ś"] = "S\as;\ax-4;\ay2;\ai;\ay-1;\ax1;\ai;\ap;",
+	   ["Ń"] = "N\as;\ax-4;\ay2;\ai;\ay-1;\ax1;\ai;\ap;",
+	   ["Ź"] = "Z\as;\ax-4;\ay2;\ai;\ay-1;\ax1;\ai;\ap;",
+	   ["ż"] = "z\as;\ax-4;\ay4;\ai;\ax1;\ai;\ap;",
+	   ["Ż"] = "Z\b-",
+	   ["ł"] = "l\as;\b\ax2;\ay9;\ai;\ax1;\ay-1;\ai;\ax3;\ay-3;\ai;\ax1;\ay-1;\ai;\ap;",
+	   ["Ł"] = "L\as;\b\ax4;\ay7;\ai;\ax1;\ay-1;\ai;\ax1;\ay-1;\ai;\ap;",
+	},
+	["_font4"] = {
+	   ["ą"] = api.utf8.char(224),
+	   ["Ą"] = api.utf8.char(192),
+	   ["ć"] = api.utf8.char(227),
+	   ["Ć"] = api.utf8.char(195),
+	   ["ę"] = api.utf8.char(230),
+	   ["Ę"] = api.utf8.char(198),
+	   ["ł"] = api.utf8.char(249),
+	   ["Ł"] = api.utf8.char(217),
+	   ["ń"] = api.utf8.char(241),
+	   ["Ń"] = api.utf8.char(209),
+	   ["ó"] = api.utf8.char(243),
+	   ["Ó"] = api.utf8.char(211),
+	   ["ś"] = api.utf8.char(250),
+	   ["Ś"] = api.utf8.char(218),
+	   ["ź"] = api.utf8.char(234),
+	   ["Ź"] = api.utf8.char(202),
+	   ["ż"] = api.utf8.char(253),
+	   ["Ż"] = api.utf8.char(221),
+	},
+	["_font5"] = {
+    ["ą"] = api.utf8.char(224-10), -- 214
+    ["Ą"] = api.utf8.char(192-10), -- 182
+    ["ć"] = api.utf8.char(227-10), -- 217
+    ["Ć"] = api.utf8.char(195-10), -- 185
+    ["ę"] = api.utf8.char(230-10), -- 220
+    ["Ę"] = api.utf8.char(198-10), -- 188
+    ["ł"] = api.utf8.char(249-10), -- 239
+    ["Ł"] = api.utf8.char(217-10), -- 207
+    ["ń"] = api.utf8.char(241-10), -- 231
+    ["Ń"] = api.utf8.char(209-10), -- 199
+    ["ó"] = api.utf8.char(243-10), -- 232
+    ["Ó"] = api.utf8.char(211-10), -- 201
+    ["ś"] = api.utf8.char(250-10), -- 240
+    ["Ś"] = api.utf8.char(218-10), -- 208
+    ["ż"] = api.utf8.char(253-10), -- 243
+    ["ź"] = api.utf8.char(234-10), -- 224
+    ["Ż"] = api.utf8.char(221-10-3-10-6), -- 192
+    ["Ź"] = api.utf8.char(202-10), -- 192
+	}  
+}
+
 function api._font(num)
     -- Initialize the FONTS table if it doesn't exist
     if not api.FONTS then
@@ -632,6 +783,7 @@ function api._font(num)
             glyphs = glyphs .. (api.glyph_edgecases[api.pico8_glyphs[i]] or api.pico8_glyphs[i])
         end
         api.FONTS[0] = {
+			glyphs = glyphs,
             font = love.graphics.newImageFont("font.png", glyphs, 1),
             glyphWidth = 4,
             glyphHeight = 6
@@ -640,6 +792,7 @@ function api._font(num)
         glyphs = ""
         for i = 32, 127 do glyphs = glyphs .. string.char(i) end
         api.FONTS[1] = {
+			glyphs = glyphs,
             font = love.graphics.newImageFont("font4x6.png", glyphs, 1),
             glyphWidth = 5,
             glyphHeight = 6
@@ -648,7 +801,8 @@ function api._font(num)
         glyphs = ""
         for i = 32, 127 do glyphs = glyphs .. string.char(i) end
         api.FONTS[2] = {
-            -- font = love.graphics.newFont("unnamed-4x6.ttf", 6),
+			glyphs = glyphs,
+			-- font = love.graphics.newFont("unnamed-4x6.ttf", 6),
             font = love.graphics.newImageFont("unnamed-4x6.png", glyphs, 1),
             glyphWidth = 5,
             glyphHeight = 7
@@ -657,15 +811,54 @@ function api._font(num)
         glyphs = ""
         for i = 32, 127 do glyphs = glyphs .. string.char(i) end
         api.FONTS[3] = {
+			glyphs = glyphs,
             font = love.graphics.newImageFont("fontvga8x14-32-127.png", glyphs, 1),
             glyphWidth = 8,
             glyphHeight = 14
         }
+        -- Font 4: 9x9
+        glyphs = ""
+        for i = 32, 255 do
+            -- glyphs = glyphs .. (api.glyph_edgecases[api.pico8_glyphs[i]] or api.pico8_glyphs[i] or string.char(i))
+            -- glyphs = glyphs .. (i<127 and string.char(i) or api.utf8.char(i)) 
+            -- glyphs = glyphs .. string.char(i)
+            glyphs = glyphs .. api.utf8.char(i)
+        end
+        api.FONTS[4] = {
+			glyphs = glyphs,
+            font = love.graphics.newImageFont("smaf1257-04-f-9x10.png", glyphs, 1),
+            glyphWidth = 9,
+            glyphHeight = 9,
+			-- hkerning = -1,
+			varWidth = true
+        }
+        api.FONTS[5] = {
+			glyphs = glyphs,
+            font = love.graphics.newImageFont("Tiny5-PL-v2-10x9.png",glyphs,1),
+            glyphWidth = 9,
+            glyphHeight = 9,
+			-- hkerning = -1,
+			varWidth = true
+        }
+
+		for _,F in pairs(api.FONTS) do
+			local mw,mh = 0,0
+			for i=1,api.utf8.len(#F.glyphs) do
+				local c = api.utf8sub(F.glyphs,i,i)
+				if c then 
+					mw = math.max(mw,F.font:getWidth(c))
+					mh = math.max(mh,F.font:getHeight(c))
+				end
+			end
+			-- logic("font ".._," org "..F.glyphWidth.."x"..F.glyphHeight," new "..mw.."x"..mh)
+			F.glyphWidth  = mw
+			F.glyphHeight = mh
+		end
     end
 
     -- Set num default and clamp it to the valid range
     num = num or 0
-    if num > 3 then num = 0 end
+    if num > #api.FONTS then num = 0 end
 
     -- Set the font using the preloaded data
     local fontData = api.FONTS[num]
@@ -674,12 +867,14 @@ function api._font(num)
     
     api.GLYPH_W = fontData.glyphWidth
     api.GLYPH_H = fontData.glyphHeight
-    api.GLYPH_FONT = num
+    api.GLYPH_VAR_W = fontData.varWidth
+    api.FONTNUM = num
+	api.FONTDATA = fontData
 end
 
 
 function api._glyphSize()
-	return api.GLYPH_W,api.GLYPH_H,api.GLYPH_FONT
+	return api.GLYPH_W,api.GLYPH_H,api.FONTNUM,api.GLYPH_VAR_W
 end
 
 function api.printIntoCanvas(text)
@@ -691,8 +886,8 @@ function api.printIntoCanvas(text)
     local textWidth = font:getWidth(text)
     local textHeight = font:getHeight()
 
-    -- Create a new canvas sized to fit the text
-    local canvas = love.graphics.newCanvas(textWidth, textHeight)
+    -- Create a new canvas sized to fit the text, make canvas at least 1x1
+    local canvas = love.graphics.newCanvas(math.max(textWidth,1), math.max(textHeight,1))
     
     -- Render the text to the canvas
     love.graphics.setCanvas(canvas)
@@ -758,6 +953,244 @@ function api.print3(...)
 	return x,y,z
 end
 
+function api.utf8sub(s, i, j)
+    -- Get the start and end character positions, default j = i if not provided
+    j = j or i
+
+    -- Convert negative indices to positive
+    local len = api.utf8.len(s)
+    if i < 0 then i = len + i + 1 end
+    if j < 0 then j = len + j + 1 end
+
+    -- Find byte offsets for start and end+1 (Lua is 1-based)
+    local start_byte = api.utf8.offset(s, i)
+    local end_byte = api.utf8.offset(s, j + 1)
+
+    if start_byte and end_byte then
+        return s:sub(start_byte, end_byte - 1)
+    elseif start_byte then
+        return s:sub(start_byte)
+    else
+        return ""
+    end
+end
+
+-- Vanilla Lua 5.1 UTF-8 validator that removes invalid characters.
+-- Returns the sanitized string.
+function api.utf8validate(input_str)
+    if type(input_str) ~= "string" then
+        -- Or error("Input must be a string")
+        return "", "Input must be a string"
+    end
+
+    local result_bytes = {} -- Store byte values of valid characters
+    local i = 1
+    local n = #input_str
+
+    while i <= n do
+        local b1 = string.byte(input_str, i)
+
+        if b1 < 0x80 then -- 1-byte sequence (0xxxxxxx, ASCII 0-127)
+            table.insert(result_bytes, b1)
+            i = i + 1
+        elseif b1 >= 0xC2 and b1 <= 0xDF then -- 2-byte sequence (110xxxxx 10xxxxxx)
+            -- Expected: C2-DF followed by 80-BF
+            if i + 1 <= n then
+                local b2 = string.byte(input_str, i + 1)
+                if b2 >= 0x80 and b2 <= 0xBF then
+                    table.insert(result_bytes, b1)
+                    table.insert(result_bytes, b2)
+                    i = i + 2
+                else
+                    -- Invalid second byte, skip b1
+                    i = i + 1
+                end
+            else
+                -- Incomplete sequence, skip b1
+                i = i + 1
+            end
+        elseif b1 >= 0xE0 and b1 <= 0xEF then -- 3-byte sequence (1110xxxx 10xxxxxx 10xxxxxx)
+            -- Expected: E0-EF followed by two 80-BF
+            if i + 2 <= n then
+                local b2 = string.byte(input_str, i + 1)
+                local b3 = string.byte(input_str, i + 2)
+                if b2 >= 0x80 and b2 <= 0xBF and b3 >= 0x80 and b3 <= 0xBF then
+                    -- Check for overlong forms and surrogates
+                    if (b1 == 0xE0 and b2 < 0xA0) or         -- Overlong: U+0000 to U+07FF encoded in 3 bytes
+                       (b1 == 0xED and b2 > 0x9F) then       -- Surrogates: U+D800 to U+DFFF
+                        -- Invalid sequence, skip b1
+                        i = i + 1
+                    else
+                        table.insert(result_bytes, b1)
+                        table.insert(result_bytes, b2)
+                        table.insert(result_bytes, b3)
+                        i = i + 3
+                    end
+                else
+                    -- Invalid second or third byte, skip b1
+                    i = i + 1
+                end
+            else
+                -- Incomplete sequence, skip b1
+                i = i + 1
+            end
+        elseif b1 >= 0xF0 and b1 <= 0xF4 then -- 4-byte sequence (11110xxx 10xxxxxx 10xxxxxx 10xxxxxx)
+            -- Expected: F0-F4 followed by three 80-BF
+            if i + 3 <= n then
+                local b2 = string.byte(input_str, i + 1)
+                local b3 = string.byte(input_str, i + 2)
+                local b4 = string.byte(input_str, i + 3)
+                if b2 >= 0x80 and b2 <= 0xBF and
+                   b3 >= 0x80 and b3 <= 0xBF and
+                   b4 >= 0x80 and b4 <= 0xBF then
+                    -- Check for overlong forms and codepoints > U+10FFFF
+                    if (b1 == 0xF0 and b2 < 0x90) or         -- Overlong: U+0000 to U+FFFF encoded in 4 bytes
+                       (b1 == 0xF4 and b2 > 0x8F) then       -- Codepoint > U+10FFFF
+                        -- Invalid sequence, skip b1
+                        i = i + 1
+                    else
+                        table.insert(result_bytes, b1)
+                        table.insert(result_bytes, b2)
+                        table.insert(result_bytes, b3)
+                        table.insert(result_bytes, b4)
+                        i = i + 4
+                    end
+                else
+                    -- Invalid second, third or fourth byte, skip b1
+                    i = i + 1
+                end
+            else
+                -- Incomplete sequence, skip b1
+                i = i + 1
+            end
+        else
+            -- Invalid starting byte (0x80-0xC1, 0xF5-0xFF)
+            -- or a continuation byte appearing without a start byte.
+            -- Skip this single invalid byte.
+            i = i + 1
+        end
+    end
+
+    return string.char(unpack(result_bytes))
+end
+
+-- removes any utf8 diactrics
+function api.ascify(text)
+	local asc ={
+		["é"] = "e",
+		["É"] = "E",
+		["è"] = "e",
+		["È"] = "E",
+		["ê"] = "e",
+		["Ê"] = "E",
+		["ë"] = "e",
+		["Ë"] = "E",
+		["à"] = "a",
+		["À"] = "A",
+		["â"] = "a",
+		["Â"] = "A",
+		["ä"] = "a",
+		["Ä"] = "A",
+		["î"] = "i",
+		["Î"] = "I",
+		["ï"] = "i",
+		["Ï"] = "I",
+		["ô"] = "o",
+		["Ô"] = "O",
+		["ö"] = "o",
+		["Ö"] = "O",
+		["ù"] = "u",
+		["Ù"] = "U",
+		["û"] = "u",
+		["Û"] = "U",
+		["ü"] = "u",
+		["Ü"] = "U",
+		["ç"] = "c",
+		["Ç"] = "C",
+		["ÿ"] = "y",
+		["ą"] = "a",
+		["ę"] = "e",
+		["ć"] = "c",
+		["ń"] = "n",
+		["ł"] = "l",
+		["ó"] = "o",
+		["ś"] = "s",
+		["ż"] = "z",
+		["ź"] = "z",
+		["Ą"] = "A",
+		["Ę"] = "E",
+		["Ć"] = "C",
+		["Ń"] = "N",
+		["Ł"] = "L",
+		["Ó"] = "O",
+		["Ś"] = "S",
+		["Ż"] = "Z",
+		["Ź"] = "Z",
+	}
+	-- for key, value in pairs(asc) do text = text:gsub(key, value) end
+	-- for key, value in pairs(asc) do text = api.ustring.gsub(text, key, value) end
+	for key, value in pairs(asc) do text = api.utf8string.gsub(text, key, value) end
+	-- text = text:gsub(api.utf8.charpattern, asc)
+	-- text = api.ustring.gsub(text, api.utf8.charpattern, asc)
+	-- text = api.utf8string.gsub(text, api.utf8.charpattern, asc)
+	return text
+end
+
+-- converts utf diactics to normal ascii range glyphs, depends on selected font!
+function api.convertDiactrics(text,fontnumber)
+	local f = fontnumber
+	if not f then
+		local _
+		_,_,f = api._glyphSize()
+	end
+
+	-- comment this to remove diactrics substitution
+	for key, value in pairs(api.glyph_diactrics["_font"..f] or api.glyph_diactrics) do text = text:gsub(key, value) end
+	-- for key, value in pairs(api.glyph_diactrics["_font"..f] or api.glyph_diactrics) do text = text:gsub(api.utf8.charpattern, {[key]=value}) end
+	-- text = text:gsub(api.utf8.charpattern, api.glyph_diactrics["_font"..f] or api.glyph_diactrics)
+	return text
+end
+
+--- Prints a string to the screen using Pico-8-like rendering, with support for glyph remapping,
+-- cursor control, and inline P8SCII-style drawing commands.
+--
+-- This function emulates the behavior of the Pico-8 `print` function with additional
+-- support for embedded control sequences using `\a` followed by a command.
+-- 
+-- @param str string: The text to print. May include embedded escape sequences for formatting and drawing.
+-- @param x number|nil: Optional X coordinate. If omitted, uses the current cursor position.
+-- @param y number|nil: Optional Y coordinate. If omitted, uses the current cursor and auto-advances by line height.
+-- @param col number|nil: Optional color index. If omitted, uses the current drawing color.
+-- 
+-- @return number newX: X position after printing (rightmost extent).
+-- @return number newY: Y position after printing (bottommost extent).
+
+-- Special sequences:
+-- - `\b`  : Backspace. Moves the cursor back by one glyph width.
+-- - `\n`  : Newline. Moves cursor to the beginning of the next line.
+-- - `\r`  : Carriage return. Moves cursor to the beginning of the current line.
+-- - `\a`  : Introduces a **P8SCII-style command** (see below). Must be followed by a command character.
+--
+-- P8SCII-like commands (used after `\a` and terminated by `;`):
+-- All commands must be terminated by a semicolon `;` to separate parameters unambiguously.
+--
+-- - `s;`     : Push current cursor position to stack.
+-- - `r;`     : restore last postion from stack (if stack is not empty)
+-- - `p;`     : Pop cursor position from stack and jump to it (if stack is not empty).
+-- - `x[+/-]N;`: Adjust cursor X position by N pixels. Signs `+` or `-` optional (default: +).
+-- - `y[+/-]N;`: Adjust cursor Y position by N pixels.
+-- - `xw;` or `W;`: Add glyph width to X.  `x-w;` subtracts it.
+-- - `yh;` or `H;`: Add glyph height to Y. `y-h;` subtracts it.
+-- - `hN;`    : set absolute x by adding N*glyphWidth to original X coordinate
+-- - `cN;`    : Change drawing color to value `N` (1–2 digits).
+-- - `co;`    : Change color back to the original color at start of print().
+-- - `i;`     : Plot a single pixel at the current cursor location.
+--
+-- Example:
+-- ```lua
+-- api.print("HP:\ac8\ai\ai\ai\aW\aW\ac6\ai\aW\ai", 10, 10)
+-- ```
+-- This draws the string "HP:" followed by 3 red pixels, skips 2 glyph widths, switches to color 6, and draws 2 more pixels.
 function api.print(...)
 	--TODO: support printing special pico8 chars
 
@@ -766,7 +1199,7 @@ function api.print(...)
 		return
 	end
 
-	local fw,fh = api._glyphSize()
+	local fw,fh,f = api._glyphSize()
 	local x = nil
 	local y = nil
 	local col = nil
@@ -785,6 +1218,8 @@ function api.print(...)
 	if col ~= nil then
 		color(col)
 	end
+	local orig_col = col or pico8.color
+
 	local canscroll = y == nil
 	if y == nil then
 		y = pico8.cursor[2]
@@ -804,48 +1239,334 @@ function api.print(...)
 	local to_print = tostring(api.tostr(str))
 
 	-- diactrics replacement
-	-- comment this to remove diactrics substitution
-	for key, value in pairs(api.glyph_diactrics) do to_print = to_print:gsub(key, value) end
+	to_print = api.convertDiactrics(to_print, f)
 
 	-- sanitize remaining utf8 multibyte characters
-	to_print = to_print:gsub("[\128-\191][\128-\191]*[\194-\244][\128-\191]*", " "):gsub("[%z\1-\127]", "%0")
+	-- to_print = to_print:gsub("[\128-\191][\128-\191]*[\194-\244][\128-\191]*", " "):gsub("[%z\1-\127]", "%0")
 
-	to_print=to_print:gsub('.', function (c)
-		-- print(c, string.byte(c), pico8_glyphs[string.byte(c)])
-		local gl = pico8_glyphs[string.byte(c)]
-		if not gl then return c end
-		return glyph_edgecases[gl] or gl end)
+	-- to_print=to_print:gsub('.', function (c)
+	-- 	local gl = pico8_glyphs[string.byte(c)]
+	-- 	if not gl then return c end
+	-- 	return glyph_edgecases[gl] or gl end)
 
 	local curFont = love.graphics.getFont()
 
 	love.graphics.setShader(pico8.text_shader)
-	-- love.graphics.print(to_print, flr(x)-1, flr(y)-1)
-	local sx,sy = flr(x)-1, flr(y)-1
+	-- local sx,sy = flr(x)-1, flr(y)-1
+	local sx,sy = flr(x), flr(y)
 	local xx,yy = sx, sy
-	to_print:gsub('.', function (c)
-		if     c=='\b' then
-			xx = xx - fw
+	local lx = xx
+	local cursorStack
+    local min_x_seen, max_x_seen = math.huge, -math.huge
+    local min_y_seen, max_y_seen = math.huge, -math.huge
+    local content_drawn = false
+
+	local i = 1
+	while i <= #to_print do
+		local c = to_print:sub(i, i)
+		if string.byte(c)>127 then 
+			c = to_print:sub(i,i+1) 
+			if c:len()==1 then c="" end
+		end
+
+		if c == '\a' then
+			local cmd_end = to_print:find(";", i+1, true)
+			local back = false
+			if not cmd_end then cmd_end = to_print:find("\a", i+1, true) back = true end -- try find next \a
+			if not cmd_end then break end -- malformed command, exit
+			local cmd = to_print:sub(i+1, cmd_end-1):lower()
+			i = cmd_end + (back and 0 or 1)
+
+			if cmd == 's' then
+				if not cursorStack then cursorStack = {} end
+				table.insert(cursorStack, {xx, yy})
+			elseif cmd == 'p' then
+				if not cursorStack then cursorStack = {} end
+				local pos = table.remove(cursorStack)
+				if pos then xx, yy = pos[1], pos[2] end
+			elseif cmd == 'r' then
+				if not cursorStack then cursorStack = {} end
+				local pos = cursorStack[#cursorStack]
+				if pos then xx, yy = pos[1], pos[2] end
+			elseif cmd:match("^x[+-]?%d+$") then
+				local n = tonumber(cmd:sub(2))
+				xx = xx + n
+			elseif cmd:match("^y[+-]?%d+$") then
+				local n = tonumber(cmd:sub(2))
+				yy = yy + n
+			elseif cmd:match("^h[+-]?%d+$") then
+				local n = tonumber(cmd:sub(2))
+				xx = sx + n * fw
+			elseif cmd == 'x-w' then
+				xx = xx - fw
+			elseif cmd == 'xw' then
+				xx = xx + fw
+			elseif cmd == 'y-h' then
+				yy = yy - fh
+			elseif cmd == 'yh' then
+				yy = yy + fh
+			elseif cmd:match("^c%d+$") then
+				color(tonumber(cmd:sub(2)))
+			elseif cmd == 'co' then
+				color(orig_col)
+			elseif cmd == 'i' then
+				love.graphics.points(xx, yy)
+			end
+        elseif c == '\t' then -- Tab character
+            local TAB_WIDTH_IN_CHARS = 4
+            local tab_width_pixels = TAB_WIDTH_IN_CHARS * fw
+            if tab_width_pixels > 0 then
+                -- Calculate the position of the next tab stop and move xx to it
+                xx = (math.floor(xx / tab_width_pixels) + 1) * tab_width_pixels
+            end
+            i = i + 1
+		elseif c=='\b' then
+			-- xx = xx - fw
+			xx = lx
+			i = i + 1
 		elseif c=='\n' then
 			xx,yy = sx, yy+fh
+			i = i + 1
 		elseif c=='\r' then
 			xx = sx
+			i = i + 1
 		else
-			if curFont:hasGlyphs(string.byte(c)) then 
-				love.graphics.print(c,xx,yy) 
+			if c and c:len()>0 and curFont:hasGlyphs(string.byte(c)) then
+				local cw = fw
+				-- log(i,"["..c.."]",c:len(),to_print)
+				-- log(string.byte(c),c:len()>1 and string.byte(c:sub(2,2)) or "")
+				-- log(api.utf8.codepoint(c))
+				c = api.utf8validate(c)
+				if api.FONTS[api.FONTNUM].varWidth then cw = api.FONTS[api.FONTNUM].font:getWidth(c) + (api.FONTS[api.FONTNUM].hkerning or 0) end
+
+				min_x_seen = math.min(min_x_seen, xx)
+				max_x_seen = math.max(max_x_seen, xx + cw)
+				min_y_seen = math.min(min_y_seen, yy)
+				max_y_seen = math.max(max_y_seen, yy + fh)
+
+				love.graphics.print(c,xx,yy)
+				content_drawn = true
+
+				lx = xx
+				xx = xx + cw
 			end
-			xx = xx + fw
+			i = i + 1
+    		if (string.byte(c) or -1)>127 then i=i+1 end
 		end
-	end )
+	end
+
 	love.graphics.setShader(pico8.draw_shader) -- rostok: i think we should fall back to draw_shader
 
-	-- return xx-sx,yy-sy
-	-- return x,y being right and bottom coordinates
-	str = to_print
-	local maxLineLength = 0
-	for line in str:gmatch("[^\n]+") do maxLineLength = math.max(maxLineLength, #line) end
-	local newX = x + maxLineLength * fw
-	local newY = y + (1+select(2, str:gsub("\n", "\n"))) * fh
-	return newX, newY
+	if not content_drawn then return x,y end
+	return max_x_seen,max_y_seen
+end
+
+--- Calculates the pixel width and height a string would occupy if printed.
+-- This function simulates the printing process, including escape codes and P8SCII commands,
+-- to determine the bounding box of the rendered text.
+--
+-- @param str_input any: The value to measure. It will be converted to a string using logic similar to api.print.
+-- @return number w: The total width of the rendered string in pixels.
+-- @return number h: The total height of the rendered string in pixels.
+function api.strdim(str_input)
+    -- 1. String Preprocessing (mirrors api.print)
+    local text_to_measure = api.tostr(str_input)
+    if type(text_to_measure) == "boolean" then
+         text_to_measure = text_to_measure and "true" or "false"
+    else
+         text_to_measure = tostring(text_to_measure)
+    end
+
+    if text_to_measure == "" then return 0, 0 end
+
+    local fw, fh, f_idx = api._glyphSize()
+    if fw == 0 or fh == 0 then return 0, 0 end -- If glyphs have no dimensions, string (if not empty) can't be measured meaningfully.
+    
+    local to_print = text_to_measure
+
+	-- diactrics replacement
+	to_print = api.convertDiactrics(to_print, f_idx)
+
+	-- sanitize remaining utf8 multibyte characters
+	-- to_print = to_print:gsub("[\128-\191][\128-\191]*[\194-\244][\128-\191]*", " "):gsub("[%z\1-\127]", "%0")
+
+	-- to_print=to_print:gsub('.', function (c)
+	-- 	local gl = pico8_glyphs[string.byte(c)]
+	-- 	if not gl then return c end
+	-- 	return glyph_edgecases[gl] or gl end)
+	
+	-- to_print = to_print:gsub(api.utf8.charpattern, " ")
+
+    -- 2. Simulation of Printing
+    local xx, yy = 0, 0
+    local lx = xx
+    local start_of_line_x = 0 -- Relative start X for \n and \r
+    local cursorStack
+
+    local min_x_seen, max_x_seen = math.huge, -math.huge
+    local min_y_seen, max_y_seen = math.huge, -math.huge
+    local content_drawn = false
+
+	local curFont = love.graphics.getFont()
+
+    local i = 1
+    while i <= #to_print do
+        local c = to_print:sub(i, i)
+		if string.byte(c)>127 then 
+			c = to_print:sub(i,i+1) 
+			if c:len()==1 then c="" end
+		end
+		-- local char = api.utf8sub(to_print, i, i)
+        if c == '\a' then -- P8SCII command
+            local cmd_end = to_print:find(";", i + 1, true)
+			local back = false
+			if not cmd_end then cmd_end = to_print:find("\a", i+1, true) back = true end -- try find next \a
+			if not cmd_end then break end -- malformed
+            local cmd = to_print:sub(i + 1, cmd_end - 1):lower()
+            i = cmd_end + (back and 0 or 1)
+
+            if cmd == 's' then
+				if not cursorStack then cursorStack = {} end
+                table.insert(cursorStack, {xx, yy, start_of_line_x})
+            elseif cmd == 'p' then
+				if not cursorStack then cursorStack = {} end
+                local pos = table.remove(cursorStack)
+                if pos then
+                    xx, yy, start_of_line_x = pos[1], pos[2], pos[3]
+                end
+			elseif cmd == 'p' then
+				if not cursorStack then cursorStack = {} end
+				local pos = cursorStack[#cursorStack]
+				if pos then xx, yy = pos[1], pos[2] end
+            elseif cmd:match("^x[+-]?%d+$") then
+                xx = xx + (tonumber(cmd:sub(2)) or 0)
+            elseif cmd:match("^y[+-]?%d+$") then
+                yy = yy + (tonumber(cmd:sub(2)) or 0)
+			elseif cmd:match("^h[+-]?%d+$") then
+				local n = tonumber(cmd:sub(2))
+				xx = n * fw
+            elseif cmd == 'x-w' then
+                xx = xx - fw
+            elseif cmd == 'xw' then
+                xx = xx + fw
+            elseif cmd == 'y-h' then
+                yy = yy - fh
+            elseif cmd == 'yh' then
+                yy = yy + fh
+            elseif cmd == 'i' then -- Plot pixel
+                min_x_seen = math.min(min_x_seen, xx)
+                max_x_seen = math.max(max_x_seen, xx)
+                min_y_seen = math.min(min_y_seen, yy)
+                max_y_seen = math.max(max_y_seen, yy)
+                content_drawn = true
+            end
+            -- 'cN' (color) and 'co' (original color) don't affect dimensions
+        elseif c == '\t' then -- Tab character
+            local TAB_WIDTH_IN_CHARS = 4
+            local tab_width_pixels = TAB_WIDTH_IN_CHARS * fw
+            if tab_width_pixels > 0 then
+                -- Calculate the position of the next tab stop and move xx to it
+                xx = (math.floor(xx / tab_width_pixels) + 1) * tab_width_pixels
+            end
+            i = i + 1
+		elseif c == '\b' then -- Backspace
+            -- xx = xx - fw
+            xx = lx
+            i = i + 1
+        elseif c == '\n' then -- Newline
+            yy = yy + fh
+            xx = start_of_line_x
+            i = i + 1
+        elseif c == '\r' then -- Carriage return
+            xx = start_of_line_x
+            i = i + 1
+        else -- Normal character (or substituted glyph string)
+            -- A character cell occupies [xx, xx+fw) and [yy, yy+fh)
+            -- This assumes that even if a glyph is "unknown", its cell contributes to extents.
+			-- log(i,"["..c.."]",c:len(),to_print)
+			-- log(string.byte(c),c:len()>1 and string.byte(c:sub(2,2)) or "")
+			if c and c:len()>0 and curFont:hasGlyphs(string.byte(c)) then
+				local cw = fw
+				c = api.utf8validate(c)
+				if api.FONTS[api.FONTNUM].varWidth then cw = api.FONTS[api.FONTNUM].font:getWidth(c) + (api.FONTS[api.FONTNUM].hkerning or 0) end
+
+				min_x_seen = math.min(min_x_seen, xx)
+				max_x_seen = math.max(max_x_seen, xx + cw)
+				min_y_seen = math.min(min_y_seen, yy)
+				max_y_seen = math.max(max_y_seen, yy + fh)
+				content_drawn = true
+
+				lx = xx
+				xx = xx + cw
+			end
+
+    		if (string.byte(c) or -1)>127 then i=i+1 end
+            i = i + 1
+        end
+    end
+
+    if not content_drawn then
+        return 0, 0 -- String was empty or contained only non-drawing commands
+    end
+    local width = max_x_seen - min_x_seen
+    local height = max_y_seen - min_y_seen
+    
+    return width, height
+end
+
+--- Calculates the number of character cells (glyphs) a string would occupy horizontally and vertically.
+-- This function uses api.strdim to get pixel dimensions and then divides by the current glyph size.
+--
+-- @param str_input any: The value to measure.
+-- @return number n: Number of characters horizontally (width_in_pixels / glyph_width, ceiled).
+-- @return number m: Number of characters vertically (height_in_pixels / glyph_height, ceiled).
+function api.strsize(str_input)
+    local fw, fh = api._glyphSize()
+    local w_pixels, h_pixels = api.strdim(str_input)
+
+    local n_chars, m_chars
+
+    if fw == 0 then
+        -- If glyph width is 0, conceptually infinite characters fit if width > 0, or 0 if width is 0.
+        -- Since strdim returns w_pixels=0 if fw=0 and string isn't just commands, result is 0.
+        n_chars = 0
+    else
+        n_chars = math.ceil(w_pixels / fw)
+    end
+
+    if fh == 0 then
+        -- Similar logic for height.
+        m_chars = 0
+    else
+        m_chars = math.ceil(h_pixels / fh)
+    end
+    
+    return n_chars, m_chars
+end
+
+--- Calculates the number of characters in a string, considering UTF-8 characters as single units.
+-- This function processes the string similarly to the initial stages of `api.print`
+-- (including `api.tostr` conversion, diacritic replacement, and basic sanitization)
+-- before counting. Control characters like \n, \r, and characters forming P8SCII
+-- escape sequences (e.g., '\a', 'C', '1', ';') are each counted as one character.
+--
+-- @param str_input any: The value whose character length is to be determined.
+-- @return number: The number of characters in the processed string.
+function api.strlen(str_input)
+    local text_to_count = api.tostr(str_input)
+    if type(text_to_count) == "boolean" then
+         text_to_count = text_to_count and "true" or "false"
+    else
+         text_to_count = tostring(text_to_count) -- Handles nil -> "nil", numbers, etc.
+    end
+
+    if text_to_count == "" then return 0 end
+
+    local _, _, f_idx = api._glyphSize()
+
+	text_to_count = text_to_count:gsub(api.utf8.charpattern, " ")
+	local count = select(2, string.gsub(text_to_count, ".", ""))
+    return count
 end
 
 api.printh = print
@@ -854,7 +1575,6 @@ api.loadstring = loadstring
 api.dofile = dofile
 api.load = load
 api.pcall = pcall
-api.utf8 = require("utf8")
 
 function api.cursor(x, y, col)
 	if col then
@@ -1893,6 +2613,47 @@ function api.line4(x0, y0, x1, y1, col)
 	love.graphics.points(points)
 end
 
+-- love2d line
+function api.line5(x0, y0, x1, y1, col)
+	if not x0 then -- Invalidates the current endpoint.
+    	pico8.line_endpoint_x = nil
+	    pico8.line_endpoint_y = nil
+	    return
+	end
+	if not y0 then -- Invalidates the current endpoint. Remembers color as the current pen color.
+    	pico8.line_endpoint_x = nil
+	    pico8.line_endpoint_y = nil
+	    if x0 ~= pico8.color then color(x0) end -- rostok: skip color if same
+	    return
+	end
+	if not x1 then -- Draws a line from the current endpoint to (x1, y1) in the current pen color. If there is no current endpoint, nothing is drawn. Remembers (x1, y1) as the current endpoint.
+	    if pico8.line_endpoint_x then
+		    x0,y0,x1,y1=pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0
+		else
+			pico8.line_endpoint_x = x0
+			pico8.line_endpoint_y = y0
+			return
+		end
+	elseif not y1 then -- Draws a line from the current endpoint to (x1, y1) in the given color. If there is no current endpoint, nothing is drawn. Remembers (x1, y1) as the current endpoint and color as the current pen color.
+	    if pico8.line_endpoint_x then
+		    x0,y0,x1,y1,col=pico8.line_endpoint_x,pico8.line_endpoint_y,x0,y0,x1
+		else
+			pico8.line_endpoint_x = x0
+			pico8.line_endpoint_y = y0
+			if x1 ~= pico8.color then color(x1) end -- rostok: skip color if same
+			return
+		end
+	end
+
+	if col and col ~= pico8.color then color(col) end -- rostok: skip color if same
+
+	pico8.line_endpoint_x = x1
+	pico8.line_endpoint_y = y1
+	
+	love.graphics.line(x0, y0, x1, y1)
+end
+
+
 api.line = api.line0
 
 api.thline = function(thickness,x0,y0,x1,y1,c)
@@ -1927,13 +2688,14 @@ end
 -- buffer passed to mesh are x,y,0,z with texure-v acting as z
 -- love Mesh vertices are x,y,u,v,r,g,b,alfa
 function api.meshpolygon(tab)
-	for i = 1, #tab do
-		local z = tab[i][4]
-        tab[i][5] = pico8.color
-        tab[i][6] = z
+	local tabSize = #tab
+	local c = pico8.color
+	for i = 1, tabSize do
+        tab[i][5] = c
+        tab[i][6] = tab[i][4] -- z
     end
-	mesh:setVertices(tab,1,#tab)
-	mesh:setDrawRange( 1, #tab )
+	mesh:setVertices(tab,1,tabSize)
+	mesh:setDrawRange( 1, tabSize )
 	love.graphics.draw( mesh )
 end
 
@@ -2129,7 +2891,7 @@ function api.sget(x, y)
 
 	if x >= 0 and x < 128 and y >= 0 and y < 128 then
 		-- local c = pico8.spritesheet_data:getPixel(x, y)*15
-		local c = pico8.spritesheet_data:getPixel(x, y)*31 -- 32 colors
+		local c = pico8.spritesheet_data:getPixel(x, y)*63 -- 64 colors
 		return c
 	end
 	return 0
@@ -2141,7 +2903,7 @@ function api.sset(x, y, c)
 	c = flr(tonumber(c) or 0)%16
 	if x>=0 and x<128 and y>=0 and y<128 then
 		-- pico8.spritesheet_data:setPixel(x, y, c / 15, 0, 0, 1)
-		pico8.spritesheet_data:setPixel(x, y, c / 31, 0, 0, 1) -- 32 colors
+		pico8.spritesheet_data:setPixel(x, y, c / 63, 0, 0, 1) -- 64 colors
 		pico8.spritesheet_changed = true --lazy
 	end
 end
@@ -2229,8 +2991,8 @@ function api.peek(addr)
 	elseif addr < 0x2000 then
 		-- local lo = pico8.spritesheet_data:getPixel(addr*2%128, flr(addr/64))*15
 		-- local hi = pico8.spritesheet_data:getPixel(addr*2%128+1, flr(addr/64))*15
-		local lo = pico8.spritesheet_data:getPixel(addr*2%128, flr(addr/64))*31 -- 32 colors
-		local hi = pico8.spritesheet_data:getPixel(addr*2%128+1, flr(addr/64))*31 -- 32 colors
+		local lo = pico8.spritesheet_data:getPixel(addr*2%128, flr(addr/64))*63 -- 64 colors
+		local hi = pico8.spritesheet_data:getPixel(addr*2%128+1, flr(addr/64))*63 -- 64 colors
 		return hi*16+lo
 	elseif addr < 0x3000 then
 		addr = addr - 0x2000
@@ -2445,8 +3207,62 @@ function api.memset(dest_addr, val, len)
 	end
 end
 
-function api.reload_cart()
-	_load(cartname)
+-- In your api.lua file (or wherever api.reload_cart is defined)
+
+-- Ensure 'pico8', 'cartname', 'currentDirectory' are accessible.
+-- If they are global in main.lua, use _G.pico8, _G.cartname, _G.currentDirectory.
+-- If they are part of the api table passed to the cart, use pico8, etc.
+-- For this example, I'll assume globals from main.lua.
+
+function api.reload_cart(new_cart_filename)
+    local target_cartname = new_cart_filename or _G.cartname -- Reload current or specified cart
+
+    if not target_cartname then
+        api.print("ERROR: NO CART SPECIFIED FOR RELOAD.", 1, 20, 8)
+        if _G.cartname then api.print("CURRENT: " .. _G.cartname, 1, 28, 7) end
+        log("Error: No cart name available for reload.")
+        return false
+    end
+
+    log("Attempting to reload cart: " .. target_cartname)
+    api.print("RELOADING: " .. target_cartname, 1, 1, 7) -- Display message on screen
+
+    -- 1. Stop any currently playing audio from the old cart
+    api.music(-1) -- Stop music
+    for i = 0, 3 do
+        api.sfx(-1, i) -- Stop SFX on all channels
+        -- Optionally, reset more detailed state in _G.pico8.audio_channels[i] if needed
+        if _G.pico8 and _G.pico8.audio_channels and _G.pico8.audio_channels[i] then
+            _G.pico8.audio_channels[i].sfx = nil
+            _G.pico8.audio_channels[i].offset = 0
+            -- etc.
+        end
+    end
+    _G.pico8.current_music = nil
+
+    local previous_cartname = _G.cartname -- Save in case _load fails for a *new* cart
+    local load_success = _load(target_cartname)
+
+    if load_success then
+        -- log("Cart '" .. target_cartname .. "' loaded successfully by _G._load.")
+        -- 3. Call api.run() to initialize the newly loaded cart
+        --    api.run() should call the cart's _init() function (if it exists)
+        --    and reset default PICO-8 API states (pal, camera, clip, color).
+        api.run()
+        return true
+    else
+        log("Failed to load cart '" .. target_cartname .. "' via _G._load.")
+        api.print("RELOAD FAILED: " .. target_cartname, 1, 10, 8)
+        -- Optionally, try to reload the *previous* cart if loading a new one failed
+        if new_cart_filename and previous_cartname and previous_cartname ~= new_cart_filename then
+            log("Attempting to restore previous cart: " .. previous_cartname)
+            api.print("REVERTING TO: " .. previous_cartname, 1, 18, 7)
+            if _G._load(previous_cartname) then
+                api.run()
+            end
+        end
+        return false
+    end
 end
 
 function api.reload(dest_addr, source_addr, len, filepath) -- luacheck: no unused
@@ -2467,11 +3283,7 @@ function api.cstore(dest_addr, source_addr, len) -- luacheck: no unused
 end
 
 function api.rnd(x)
-	-- if type(x)=="table" then
-		-- return x[love.math.random(#x)]
-	-- else
-		return love.math.random() * (x or 1) -- rostok: optimize for speed tonumber(x)
-	-- end
+	return love.math.random() * (x or 1) -- rostok: optimize for speed tonumber(x)
 end
 
 -- api.rnd = love.math.random
@@ -2607,12 +3419,13 @@ function api.eval(code)
 	setfenv(f, pico8.cart._ENV)
 
     -- Execute the function in protected mode to catch errors
-    local success, result = pcall(f)
+    local result = api.pack( pcall(f) )
+	local success = table.remove(result, 1)
     if not success then
-        print("eval runtime error: " .. result)
+        print("eval runtime error: ", unpack(result))
     end
 
-    return success, result
+    return success, unpack(result)
 end
 
 -- set value in global pico8 cart namespace by string path, for example api.evalset("view.groundColor", 3, true)
@@ -2860,7 +3673,7 @@ function api.unpress(...)
 		pico8.last_keys = {}
 		return
 	end
-	for i, arg in ipairs({...}) do pico8.keys[arg]=false end
+	for i, arg in ipairs({...}) do pico8.keys[arg]=nil end
 end
 
 function api.isPressed(...)
@@ -3081,7 +3894,9 @@ end
 api.rawequal = rawequal
 api.next = next
 api.unpack = unpack
-api.pack = table.pack
+api.pack = function (...)
+    return {__size = select('#', ...), ...}
+end
 
 function api.all(a)
 	if a == nil then
@@ -3112,18 +3927,28 @@ function api.foreach(a, f)
 end
 
 -- legacy function
+--   Counts elements in a table.
+--   - If `val` is provided, it counts the number of times that value appears in the table.
+--   - If `val` is nil, it counts the total number of key-value pairs in the table.
+--   Works with both array-like (indexed) and associative tables.
 function api.count(a, val)
+	local count = 0
 	if val ~= nil then
-		local count = 0
-		for _, v in ipairs(a) do
+		-- Count specific values: Iterate through all values in the table.
+		-- `pairs` is used to ensure we check every key-value pair, not just the array part.
+		for _, v in pairs(a) do
 			if v == val then
 				count = count + 1
 			end
 		end
-		return count
 	else
-		return #a
+		-- Count total elements: Iterate through all keys to get the total count.
+		-- The `#` operator would not work for associative tables.
+		for _ in pairs(a) do
+			count = count + 1
+		end
 	end
+	return count
 end
 
 function api.add(a, v, index)
@@ -3276,18 +4101,22 @@ end
 function api.manualGC(time_budget, memory_ceiling, disable_otherwise)
 	time_budget = time_budget or 1e-3
 	memory_ceiling = memory_ceiling or math.huge
-	local max_steps = 10000
+	local max_steps = pico8.__stats.maxGCsteps or 100
 	local steps = 0
 	local start_time = love.timer.getTime()
 	while love.timer.getTime() - start_time < time_budget and steps < max_steps do
 		collectgarbage("step", 1)
 		steps = steps + 1
 	end
+	pico8.__stats.lastGCsteps = steps
+	pico8.__stats:updateGCStats(steps,time_budget)
+	-- log(steps,love.timer.getTime(),love.timer.getTime() - start_time,time_budget)
 	-- log(time_budget,steps)
 	--safety net
 	if memory_ceiling~=math.huge and collectgarbage("count") / 1024 > memory_ceiling then
-		-- log("collect")
+		log("GARBAGE COLLECT, exceeded "..memory_ceiling.."MB")
 		collectgarbage("collect")
+		log("GARBAGE COLLECT DONE")
 	end
 	--don't collect gc outside this margin
 	if disable_otherwise then
@@ -3371,6 +4200,9 @@ api.traceDebugOff = function()
     -- print("JIT enabled, tracing disabled")
 end
 
+-- api.log = io.write
 api.lognl = io.write
+
+api.api = api -- self reference
 
 return api
