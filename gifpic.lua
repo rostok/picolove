@@ -32,15 +32,15 @@ function gifpic.new(w, h, palette, transparentIndex)
         local sc = palette[i]
         local dc = {}
         for _,rgb in pairs(sc) do dc[#dc+1] = rgb end
---        self.palette[j] = dc
-        self.palette[#self.palette+1] = dc
+        self.palette[j] = dc
+--        self.palette[#self.palette+1] = dc
         j = j + 1
     end
     self.colors = j
     self:clear(0)
     local ps = self.colors
     if ps<2^math.ceil(log2(ps)) then
-        for i=ps+1,2^math.ceil(log2(ps)) do
+        for i=ps,2^math.ceil(log2(ps)) do
             self.palette[i] = {0,0,0}
         end
     end
@@ -174,16 +174,17 @@ function gifpic:save(filename)
     file:write(num2str(self.width), num2str(self.height))
 
     -- packed field
-    file:write(string.char(0xF0 + math.ceil(log2(#self.palette)-1)))
+    file:write(string.char(0xF0 + math.ceil(log2(self.colors)-1)))
     --  Background Color Index ,  Pixel Aspect Ratio
     file:write("\0\0") 
 
     -- Global Color Table
-    for _, color in ipairs(self.palette) do
+    for ci=0,self.colors-1 do
+        local color = self.palette[ci]
         file:write(string.char(color[1], color[2], color[3]))
     end
 
-    if self.transparentIndex and self.transparentIndex>=0 and self.transparentIndex<#self.palette then
+    if self.transparentIndex and self.transparentIndex>=0 and self.transparentIndex<self.colors then
         -- Write Graphic Control Extension with transparency enabled.
         -- Packed field byte is 5 (....0101) to set the transparency flag.
         -- The color index is 0-based.
