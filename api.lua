@@ -51,7 +51,7 @@ local function color(c)
 	if c ~= pico8.color then -- rostok: skip if this is current color
 		-- c = flr(c or 0) % 32
 		c = flr(c or 0)
-		pico8.color = c/6
+		pico8.color = c
 		setColor(c)
 	end
 end
