@@ -545,6 +545,33 @@ function love.load(argv)
 		}
 	]])
 
+	-- flir like thermal
+	pico8.depthView = love.graphics.newShader([[ 
+		extern Image depth; 
+
+		// Function to map a value to a thermal palette 
+		vec4 thermalPalette(float value) { 
+			vec3 a = vec3(0.0, 0.0, 0.0); // Black 
+			vec3 b = vec3(0.5, 0.0, 0.5); // Magenta 
+			vec3 c = vec3(1.0, 0.0, 0.0); // Red 
+			vec3 d = vec3(1.0, 1.0, 0.0); // Yellow 
+			vec3 e = vec3(1.0, 1.0, 1.0); // White 
+
+			vec3 color = a; 
+			color = mix(color, b, smoothstep(0.0, 0.25, value)); 
+			color = mix(color, c, smoothstep(0.25, 0.5, value)); 
+			color = mix(color, d, smoothstep(0.5, 0.75, value)); 
+			color = mix(color, e, smoothstep(0.75, 1.0, value)); 
+
+			return vec4(color, 1.0); 
+		} 
+
+		vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) { 
+			float depthValue = Texel(depth, texture_coords).r; 
+			return thermalPalette(depthValue); 
+		} 
+	]]);	
+
 	-- blue noise dithering
 	local blueNoiseData = love.image.newImageData("bluenoise.png")
 	local blueNoise = love.graphics.newImage(blueNoiseData)
@@ -577,7 +604,7 @@ function love.load(argv)
 			float vz = texture_coords.y; // vertex z value
 			float cz = z;
 			if (isNaN(z)||isInf(z)) cz = vz;
-			gl_FragDepth = unlerp( viewy+viewh*1.5, viewy-viewh*1.5, cz ); // extend view so 0..1 of z is below and benath of visible area
+			gl_FragDepth = unlerp( viewy+viewh*0.6, viewy-viewh*0.6, cz ); // extend view so 0..1 of z is below and beneath of visible area
 			//gl_FragDepth = clamp(gl_FragDepth,0.0,1.0);
 			//int index = int(color.r*15.0+0.5);
 			int index = int(color.r*63.0+0.5); // -- 64 colors
