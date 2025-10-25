@@ -545,39 +545,6 @@ function love.load(argv)
 		}
 	]])
 
-	local draw_shader = [[
-extern float threshold = 0; // alpha dithering level 0.0-1.0, 0 fully transparent, 1 fully opaque
-extern int viewx = 0;
-extern int viewy = 0;
-//extern int vieww = 480;
-extern int viewh = 270;
-int ditherPattern[16] = int[16](
-	0,  8,  2, 10,
-	12,  4, 14, 6,
-	3, 11,  1,  9,
-	15,  7, 13, 5
-);
-extern float palette[64];
-extern float z;
-vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
-	//gl_FragDepth = z;
-	float vz = texture_coords.y; // vertex z value
-	float cz = min(vz,z); // these are in world space, calculated z
-	gl_FragDepth = 1-(cz-(viewy-viewh/2))/viewh/3-0.3333333;
-	// lower z is closer, bigger is further,   
-	//int index = int(color.r*15.0+0.5);
-	int index = int(color.r*63.0+0.5); // -- 64 colors
-	float a = 1.0;
-	if (threshold>0) {
-		int u = int(mod(screen_coords.x + viewx,4));
-		int v = int(mod(screen_coords.y + viewy,4));
-		int i = u+v*4;
-		if (ditherPattern[i]/15.0<=threshold) { a = 0.0; gl_FragDepth = 999; }
-	}
-	//return vec4(palette[index]/15.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component
-	return vec4(palette[index]/63.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component, -- 64 colors
-}]]
-
 	-- blue noise dithering
 	local blueNoiseData = love.image.newImageData("bluenoise.png")
 	local blueNoise = love.graphics.newImage(blueNoiseData)
@@ -599,7 +566,7 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 		//extern int vieww = 480;
 		extern int viewh = 270;
     	extern Image blueNoise; 
-		extern float palette[64];
+		//extern float palette[64]; // no need to pass it here as display_shader will do all the work and assign indices to RBG
 		extern float z;
 
 		bool isNaN(float val) { return val != val; }
@@ -623,66 +590,69 @@ vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) 
 				if (threshold<0 && Texel(blueNoise,bn).x>=-threshold) { a = 0.0; gl_FragDepth = 999; }
 			}
 			//return vec4(palette[index]/15.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component
-			return vec4(palette[index]/63.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component, -- 64 colors
+			//return vec4(palette[index]/63.0,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component, -- 64 colors
+			return vec4(color.r,gl_FragDepth,0, a); // should zbuffer view be needed it is passed as green component, -- 64 colors
 		}]]
 	-- blue noise ends
 
 	pico8.draw_shader = love.graphics.newShader(draw_shader)
-	pico8.draw_shader:send("palette", shdr_unpack(pico8.draw_palette))
+	-- pico8.draw_shader:send("palette", shdr_unpack(pico8.draw_palette))
 	pico8.draw_shader:send("blueNoise", blueNoise)
 
 	pico8.sprite_shader = love.graphics.newShader([[
-extern float palette[64];
-extern float transparent[64];
+		//extern float palette[64]; // again, using palette here seems unnecessary
+		extern float transparent[64];
 
-vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
-	//int index = int(Texel(texture, texture_coords).r*15.0+0.5);
-	int index = int(Texel(texture, texture_coords).r*63.0+0.5); // -- 64 colors
-	float alpha = transparent[index];
-	
-	//return vec4(palette[index]/15.0, 0.0, 0.0 ,alpha);
-	return vec4(palette[index]/63.0, 0.0, 0.0 ,alpha); // -- 64 colors
-}]])
-	pico8.sprite_shader:send("palette", shdr_unpack(pico8.draw_palette))
+		vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
+			//int index = int(Texel(texture, texture_coords).r*15.0+0.5);
+			int index = int(Texel(texture, texture_coords).r*63.0+0.5); // -- 64 colors
+			float alpha = transparent[index];
+			
+			//return vec4(palette[index]/15.0, 0.0, 0.0 ,alpha);
+			//return vec4(palette[index]/63.0, 0.0, 0.0 ,alpha); // -- 64 colors
+			return vec4(Texel(texture, texture_coords).r, 0.0, 0.0 ,alpha); // -- 64 colors
+		}]])
+	--pico8.sprite_shader:send("palette", shdr_unpack(pico8.draw_palette))
 	pico8.sprite_shader:send("transparent", shdr_unpack(pico8.pal_transparent))
 
 	pico8.text_shader = love.graphics.newShader([[
-extern float palette[64];
+		//extern float palette[64]; // and here as well
 
-vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
-	vec4 texcolor = Texel(texture, texture_coords);
-	if(texcolor.a == 0.0) {
-		return vec4(0.0,0.0,0.0,0.0);
-	}
-	//int index = int(color.r*15.0+0.5);
-	int index = int(color.r*63.0+0.5); // -- 64 colors
-	
-	// lookup the color in the palette by index
-	//return vec4(palette[index]/15.0, 0.0, 0.0, texcolor.a);
-	return vec4(palette[index]/63.0, 0.0, 0.0, texcolor.a); // -- 64 colors
-}]])
-	pico8.text_shader:send("palette", shdr_unpack(pico8.draw_palette))
+		vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
+			vec4 texcolor = Texel(texture, texture_coords);
+			if(texcolor.a == 0.0) {
+				return vec4(0.0,0.0,0.0,0.0);
+			}
+			//int index = int(color.r*15.0+0.5);
+			//int index = int(color.r*63.0+0.5); // -- 64 colors
+			
+			// lookup the color in the palette by index
+			//return vec4(palette[index]/15.0, 0.0, 0.0, texcolor.a);
+			//return vec4(palette[index]/63.0, 0.0, 0.0, texcolor.a); // -- 64 colors
+			return vec4(color.r, 0.0, 0.0, texcolor.a); // -- 64 colors
+		}]])
+	--pico8.text_shader:send("palette", shdr_unpack(pico8.draw_palette))
 
 	pico8.display_shader = love.graphics.newShader([[
-extern vec4 palette[64];
+		extern vec4 palette[64];
 
-vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
-	//int index = int(Texel(texture, texture_coords).r*15.0+0.5);
-	int index = int(Texel(texture, texture_coords).r*63.0+0.5); // -- 64 colors
-	
-	// lookup the color in the palette by index
-	return palette[index]/255.0;
+		vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
+			//int index = int(Texel(texture, texture_coords).r*15.0+0.5);
+			int index = int(Texel(texture, texture_coords).r*63.0+0.5); // -- 64 colors
+			
+			// lookup the color in the palette by index
+			return palette[index]/255.0;
 
-	// playtesting below
-	//vec4 v;
-	//v = palette[index]/255.0; // normal 
-	//vec4 t = Texel(texture, texture_coords);
-	//v.r = t.r;v.g = t.r;v.b = t.b; // show color index
-	//v.r = t.g;v.g = t.g;v.b = t.g; // show depth values passed as green
-	//v.r = t.b;v.g = t.b;v.b = t.b; // blue is unused
-	//v.r = t.r;v.g = t.g;v.b = t.b;  // red index, green depth, blue ?
-	//return v;
-}]])
+			// playtesting below
+			//vec4 v;
+			//v = palette[index]/255.0; // normal 
+			//vec4 t = Texel(texture, texture_coords);
+			//v.r = t.r;v.g = t.r;v.b = t.b; // show color index
+			//v.r = t.g;v.g = t.g;v.b = t.g; // show depth values passed as green
+			//v.r = t.b;v.g = t.b;v.b = t.b; // blue is unused
+			//v.r = t.r;v.g = t.g;v.b = t.b;  // red index, green depth, blue ?
+			//return v;
+		}]])
 	pico8.display_shader:send("palette", shdr_unpack(pico8.display_palette))
 
 	-- load the cart
@@ -973,9 +943,11 @@ function flip_screen(pixel_perfect)
 	-- end
 
     -- Optionally draw the zbuffer
-    -- love.graphics.setShader(pico8.depthView)
-    -- pico8.depthView:send("depth", pico8.depth)
-    -- love.graphics.draw(pico8.depth, x_offset, y_offset, 0, scale, scale)
+	if pico8.drawdepthbuffer then
+		love.graphics.setShader(pico8.depthView)
+		pico8.depthView:send("depth", pico8.depth)
+		love.graphics.draw(pico8.depth, x_offset, y_offset, 0, scale, scale)
+	end
 
     love.graphics.present()
 
@@ -1555,7 +1527,7 @@ function love.run()
 			
 		-- api.mprof.push("gc")
 		if love.timer then
-			if pico8.frameLimiter>0 then 
+			if pico8.frameLimiter>0 then
 				local timeLeft = 1.0/pico8.frameLimiter - (love.timer.getTime()-limiter_time)
 
 				-- https://love2d.org/forums/viewtopic.php?p=254778
