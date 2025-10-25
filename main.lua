@@ -602,9 +602,20 @@ function love.load(argv)
 
 		vec4 effect(vec4 color, Image texture, vec2 texture_coords, vec2 screen_coords) {
 			float vz = texture_coords.y; // vertex z value
-			float cz = z;
+			
+			// float cz = z; 
+			// this is the old way, all pixels drawn get this exact Z value. however newer approach in house and Geom.cuboid
+			// has depth value varying with height from the ground. this approach, in isometric view, will allow to have z-buffer
+			// for stacked objects beacase they have encoded depth value for both distance and height. which in some way may look
+			// like higher objects are leaning towards camera
+			// unfortunately the old way of cz=z meant that all objects had fixed depth value and didnt lean towards camera. 
+			// so below is a new way of calculating cz based on world y
+			// which allows depth buffer to distinct not only distance from camera but height of objects as well
+
+			float wy = viewy - viewh/2 + screen_coords.y; // world y position
+			float cz = z - (wy-z);
 			if (isNaN(z)||isInf(z)) cz = vz;
-			gl_FragDepth = unlerp( viewy+viewh*0.6, viewy-viewh*0.6, cz ); // extend view so 0..1 of z is below and beneath of visible area
+			gl_FragDepth = unlerp( viewy+viewh*1.0, viewy-viewh*1.0, cz ); // extend view so 0..1 of z is below and beneath of visible area
 			//gl_FragDepth = clamp(gl_FragDepth,0.0,1.0);
 			//int index = int(color.r*15.0+0.5);
 			int index = int(color.r*63.0+0.5); // -- 64 colors
