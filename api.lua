@@ -2667,7 +2667,14 @@ function api.polygon(...)
 	love.graphics.polygon("fill",...)
 end
 
-local mesh = love.graphics.newMesh({{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0},{0,0,0}},"fan","dynamic")
+api.__meshVertices = {}
+api.__trimeshVertices = {}
+for i=1,128 do
+	api.__meshVertices[i] = {0,0,0}
+	api.__trimeshVertices[i] = {0,0,0}
+end
+api.__mesh = love.graphics.newMesh(api.__meshVertices,"fan","dynamic")
+api.__trimesh = love.graphics.newMesh(api.__meshVertices,"triangles","dynamic")
 
 function api.meshpolygonOLD(...)
     local cnt = select('#', ...);
@@ -2676,17 +2683,15 @@ function api.meshpolygonOLD(...)
         -- args[#args+1] = {select(i, ...),select(i+1, ...),0,0,1,1,1,1}
         args[#args+1] = {select(i, ...),select(i+1, ...),0}
     end
-	-- local mesh = love.graphics.newMesh(args,"fan","dynamic")
-	mesh:setVertices(args)
-	-- mesh:flush()
-	love.graphics.draw( mesh )
-	-- mesh:release();
+	api.__mesh:setVertices(args)
+	love.graphics.draw( api.__mesh )
 end
 
 -- draw zbuffered polygon, tab values are {x,y,z}
 -- with z being 0..1 or smaller as in setZ()
 -- buffer passed to mesh are x,y,0,z with texure-v acting as z
 -- love Mesh vertices are x,y,u,v,r,g,b,alfa
+-- this uses "fan" draw mode
 function api.meshpolygon(tab)
 	local tabSize = #tab
 	local c = pico8.color
@@ -2694,9 +2699,9 @@ function api.meshpolygon(tab)
         tab[i][5] = c
         tab[i][6] = tab[i][4] -- z
     end
-	mesh:setVertices(tab,1,tabSize)
-	mesh:setDrawRange( 1, tabSize )
-	love.graphics.draw( mesh )
+	api.__mesh:setVertices(tab,1,tabSize)
+	api.__mesh:setDrawRange( 1, tabSize )
+	love.graphics.draw( api.__mesh )
 end
 
 function api.polygonline(...)
@@ -4099,6 +4104,7 @@ function api.readFile(filename)
 end
 
 function api.manualGC(time_budget, memory_ceiling, disable_otherwise)
+	-- log("manualGC",time_budget, memory_ceiling, disable_otherwise)
 	time_budget = time_budget or 1e-3
 	memory_ceiling = memory_ceiling or math.huge
 	local max_steps = pico8.__stats.maxGCsteps or 100
