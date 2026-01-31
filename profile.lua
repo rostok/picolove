@@ -13,6 +13,10 @@ local _defined = {}
 local _tcalled = {}
 -- total execution time
 local _telapsed = {}
+-- total memory allocated
+local _tallocated = {}
+-- mem usage of last call
+local _tprealloc = {}
 -- number of calls
 local _ncalls = {}
 -- list of internal profiler functions
@@ -159,7 +163,7 @@ function profile.tracingJSON()
   return output
 end
 
-function profile.flameHTML(dataFile,extraContent)
+function profile.flameHTML_OLD(dataFile,extraContent)
   extraContent = extraContent or ""
   local dataScript = dataFile and "<script src="..dataFile.."></script>" or "<script>"..profile.flameJS().."</script>"
   local o = [[<html>
@@ -207,7 +211,7 @@ function profile.flameHTML(dataFile,extraContent)
   </style>
   <body>
   <div id=scd>]]..extraContent..[[<input id=scale value=0 size=1></input>
-  <a href=# onclick='scale=width/maxtime;go();'>0</a>
+  <a href=# onclick='scale=0;go();'>0</a>
   <a href=# onclick='scale=100;go();'>100</a>
   <a href=# onclick='scale=250;go();'>250</a>
   <a href=# onclick='scale=500;go();'>500</a>
@@ -281,6 +285,241 @@ document.getElementById("scale").addEventListener("change", function (event) {
   return o;
 end
 
+function profile.flameHTML(dataFile,extraContent)
+  extraContent = extraContent or ""
+  local dataScript = dataFile and "<script src="..dataFile.."></script>" or "<script>"..profile.flameJS().."</script>"
+  local o = [[<html>
+  <style>
+  a, body {
+      color: white;
+      background-color:gray;
+      font-family: 'Arial Narrow', Arial, sans-serif;
+      font-stretch: condensed;
+      overflow-x:scroll;
+  }
+  .bar {
+      font-size: 12px;
+      position: absolute;
+      background-color: #3498db;
+      height: 24px;
+      line-height: 24px;
+      text-align: center;
+      border: 1px solid #8af;
+      overflow: hidden;  
+  }
+  .bar:hover {
+      background-color: yellow; 
+      color:black;
+      display: block; 
+  }
+  .tooltip {
+      font-size: 12px;
+      line-height: 12px;
+      display: none; 
+      position: absolute;
+      border: 1px solid #333;
+      background-color: #fff;
+      color: #333;
+      padding: 10px;
+      white-space: nowrap; 
+      z-index: 10; 
+      text-align: left;
+  }
+  #scd {
+	position: absolute;
+    bottom: 10px;
+	left: 10px;
+  }
+  </style>
+  <body>
+  <div id=scd>]]..extraContent..[[<input id=scale value=0 size=1></input>
+  <a href=# onclick='scale=width/maxtime;go();'>0</a>
+  <a href=# onclick='scale=100;go();'>100</a>
+  <a href=# onclick='scale=250;go();'>250</a>
+  <a href=# onclick='scale=500;go();'>500</a>
+  <a href=# onclick='scale=1000;go();'>1000</a>
+  <a href=# onclick='scale=2000;go();'>2000</a>
+  <a href=# onclick='scale=4000;go();'>4000</a>
+  </div>
+  ]]..dataScript..[[
+  <script>
+
+// 1. GLOBAL STATE & HELPERS
+var scale = 0; // 0 = Auto-fit
+var data = data || []; 
+
+// Pre-calculate aggregates for the whole dataset
+var aggregates = {};
+data.forEach(d => {
+    if (!aggregates[d.name]) {
+        aggregates[d.name] = { totalTime: 0, totalCalls: 0 };
+    }
+    aggregates[d.name].totalTime += d.time;
+    aggregates[d.name].totalCalls += (d.n || 1);
+});
+
+var names = [...new Set(data.map((obj) => obj.name))].sort().reduce((acc, name, idx) => ({ ...acc, [name]: idx }), {});
+
+function stringToColor(str) {
+    return `hsl(${(360 * names[str]) / Object.keys(names).length}, 50%, 50%)`;
+}
+
+// 2. TOOLTIP SYSTEM
+const tooltip = document.createElement("div");
+Object.assign(tooltip.style, {
+    display: "none", position: "fixed", zIndex: "1000",
+    padding: "10px", background: "rgba(255, 255, 255, 0.98)",
+    border: "1px solid #333", boxShadow: "2px 2px 10px rgba(0,0,0,0.2)",
+    pointerEvents: "none", fontFamily: "monospace", fontSize: "11px",
+    lineHeight: "1.4", borderRadius: "3px", color: "#000"
+});
+document.body.appendChild(tooltip);
+
+document.addEventListener("mouseover", (e) => {
+    if (e.target.classList.contains("bar")) {
+        const d = JSON.parse(e.target.dataset.info);
+        const agg = aggregates[d.name];
+        
+        // Formatting the tooltip with all requested info
+        let html = `<b>${d.name}</b><br><hr>`;
+        html += `<b>Location:</b> ${d.source || 'N/A'}:${d.defined || '?'}<br>`;
+        html += `<b>Calls (this instance):</b> ${d.n}<br>`;
+        html += `<b>Time (this instance):</b> ${d.time.toFixed(4)}ms<br>`;
+        html += `<b>Time per Call:</b> ${(d.time / d.n).toFixed(4)}ms<br>`;
+        html += `<b>Self Time:</b> ${d.selfTime.toFixed(4)}ms<br>`;
+        html += `<hr>`;
+        html += `<b>Total Calls (global):</b> ${agg.totalCalls}<br>`;
+        html += `<b>Total Time (global):</b> ${agg.totalTime.toFixed(4)}ms`;
+        
+        tooltip.innerHTML = html;
+        tooltip.style.display = "block";
+    }
+});
+
+document.addEventListener("mouseout", (e) => {
+    if (e.target.classList.contains("bar")) tooltip.style.display = "none";
+});
+
+document.addEventListener("mousemove", (e) => {
+    // Keep tooltip within window bounds
+    let x = e.clientX + 15;
+    let y = e.clientY + 15;
+    if (x + 200 > window.innerWidth) x = e.clientX - 210;
+    tooltip.style.left = x + "px";
+    tooltip.style.top = y + "px";
+});
+
+// 3. BAR CREATION
+function createBar(x, y, w, node, fragment) {
+    var el = document.createElement("div");
+    el.className = "bar";
+    el.style.cssText = `
+        position: absolute;
+        left: ${x}px;
+        top: ${y}px;
+        width: ${Math.max(1, w)}px;
+        height: 24px;
+        background-color: ${stringToColor(node.name)};
+        border: 0.5px solid rgba(0,0,0,0.1);
+        box-sizing: border-box;
+        cursor: default;
+        overflow: hidden;
+    `;
+    
+    el.innerHTML = `<span style="pointer-events:none; display:block; padding: 4px; font-size:11px; font-family:sans-serif; white-space:nowrap; color:#fff; text-shadow:1px 1px 1px #000;">${node.name}</span>`;
+
+    // Calculate Self Time: Total node time minus sum of children times
+    const childrenTotalTime = node.children.reduce((acc, c) => acc + c.time, 0);
+    node.selfTime = Math.max(0, node.time - childrenTotalTime);
+
+    // Attach all data for the tooltip
+    el.dataset.info = JSON.stringify({
+        name: node.name,
+        source: node.source,
+        defined: node.defined,
+        n: node.n,
+        time: node.time,
+        selfTime: node.selfTime,
+        depth: node.depth
+    });
+
+    fragment.appendChild(el);
+}
+
+// 4. MAIN LOGIC
+function go() {
+    document.querySelectorAll("div.bar").forEach((d) => d.remove());
+    if (!data.length) return;
+
+    // A. Tree Construction
+    let minDepth = Infinity;
+    data.forEach(d => {
+        d.depth = d.stack.split("/").length;
+        if (d.depth < minDepth) minDepth = d.depth;
+        d.children = []; 
+    });
+
+    data.sort((a, b) => a.depth - b.depth);
+    let roots = [];
+    let nodeMap = {}; 
+
+    data.forEach(d => {
+        nodeMap[d.stack] = d;
+        let parentPath = d.stack.substring(0, d.stack.lastIndexOf("/"));
+        let parent = nodeMap[parentPath];
+        if (parent) parent.children.push(d);
+        else roots.push(d);
+    });
+
+    // B. Scaling
+    let totalTimeAtRoot = roots.reduce((acc, r) => acc + r.time, 0);
+    let activeScale = (scale > 0) ? scale : (window.innerWidth - 20) / totalTimeAtRoot;
+
+    // C. Recursive Drawing
+    let fragment = document.createDocumentFragment();
+    let currentX = 4;
+
+    function drawTree(node, xOffset) {
+        let yPos = 4 + (node.depth - minDepth) * 25;
+        let widthVal = node.time * activeScale;
+
+        createBar(xOffset, yPos, widthVal, node, fragment);
+
+        let childX = xOffset;
+        // Sort children by time to make the graph easier to read (Flame Graph style)
+        node.children.sort((a, b) => b.time - a.time).forEach(child => {
+            drawTree(child, childX);
+            childX += (child.time * activeScale);
+        });
+    }
+
+    roots.sort((a,b) => b.time - a.time).forEach(root => {
+        drawTree(root, currentX);
+        currentX += (root.time * activeScale);
+    });
+
+    document.body.appendChild(fragment);
+    
+    // Update input UI if it exists
+    const input = document.getElementById("scale");
+    if(input && document.activeElement !== input) input.value = scale;
+}
+
+// 5. INITIALIZE
+window.addEventListener('resize', () => { if (scale == 0) go(); });
+document.getElementById("scale").addEventListener("change", (e) => {
+    scale = parseFloat(e.target.value) || 0;
+    go();
+});
+
+go();
+
+  </script>
+  </body>    
+  </html>]]
+  return o;
+end
+
 function profile.flameJS()
   local o = "data = [\n";
   for stack, v in pairs(_stacktime) do
@@ -313,11 +552,17 @@ function profile.hooker(event, line, info)
     _defined[f] = info.short_src..":"..info.linedefined
     _ncalls[f] = 0
     _telapsed[f] = 0
+    _tallocated[f] = 0
   end
   if _tcalled[f] then
     local dt = clock() - _tcalled[f]
     _telapsed[f] = _telapsed[f] + dt
     _tcalled[f] = nil
+  end
+  if _tprealloc[f] then
+    local dm = collectgarbage("count") - _tprealloc[f]
+    _tallocated[f] = _tallocated[f] + dm
+    _tprealloc[f] = nil
   end
   if event == "tail call" then
     local prev = debug.getinfo(3, 'fnS')
@@ -325,6 +570,7 @@ function profile.hooker(event, line, info)
     profile.hooker("call", line, info)
   elseif event == 'call' then
     _tcalled[f] = clock()
+    _tprealloc[f] = collectgarbage("count")
   else
     _ncalls[f] = _ncalls[f] + 1
   end
@@ -353,6 +599,11 @@ function profile.stop()
     local dt = clock() - _tcalled[f]
     _telapsed[f] = _telapsed[f] + dt
     _tcalled[f] = nil
+  end
+  for f in pairs(_tprealloc) do
+    local dm = collectgarbage("count") - _tprealloc[f]
+    _tallocated[f] = _tallocated[f] + dm
+    _tprealloc[f] = nil
   end
   -- merge closures
   local lookup = {}
@@ -388,6 +639,9 @@ function profile.reset()
   for f in pairs(_tcalled) do
     _tcalled[f] = nil
   end
+  for f in pairs(_tprealloc) do
+    _tprealloc[f] = nil
+  end
   collectgarbage('collect')
 end
 
@@ -422,12 +676,25 @@ function profile.query(limit)
     if _tcalled[f] then
       dt = clock() - _tcalled[f]
     end
-    t[i] = { i, _labeled[f] or '?', _ncalls[f], _telapsed[f] + dt, (_telapsed[f] + dt)*1000/_ncalls[f], _defined[f] }
+    local dm = 0
+    if _tprealloc[f] then
+      dm = collectgarbage("count") - _tprealloc[f]
+    end
+    t[i] = { i, _labeled[f] or '?', _ncalls[f], _telapsed[f] + dt, (_telapsed[f] + dt)*1000/_ncalls[f], _tallocated[f] + dm, (_tallocated[f] + dm)/_ncalls[f], _defined[f] }
   end
   return t
 end
 
-local cols = { 3, 29, 8, 10, 13, 52 }
+local cols = { 
+    3,  -- #
+    29, -- function
+    8,  -- calls
+    10, -- time s
+    13, -- per call ms
+    10, -- mem
+    13, -- mem per call ms
+    52  -- code
+}
 local rightalign = { true, false, true, true, true, false }
 
 --- Generates a text report.
@@ -436,11 +703,11 @@ function profile.report(n)
   local out = {}
   local report = profile.query(n)
   for i, row in ipairs(report) do
-    for j = 1, 6 do
+    for j = 1, 8 do
       local s = row[j]
       local l2 = cols[j]
       local ra = rightalign[j]
-      if j==4 or j==5 then s = string.format("%.6f", s) end
+      if j==4 or j==5 or j==6 or j==7 then s = string.format("%.6f", s) end
       s = tostring(s)
       local l1 = s:len() or 0
       if l1 < l2 then
@@ -457,8 +724,8 @@ function profile.report(n)
     out[i] = table.concat(row, ' | ')
   end
 
-  local row = " +-----+-------------------------------+----------+------------+---------------+------------------------------------------------------+ \n"
-  local col = " | #   | Function                      | Calls    | Time (s)   | Per Call (ms) |Code                                                  | \n"
+  local row = " +-----+-------------------------------+----------+------------+---------------+------------+---------------+------------------------------------------------------+ \n"
+  local col = " | #   | Function                      | Calls    | Time (s)   | Per Call (ms) | Memory(kb) | Mem Per Call  |Code                                                  | \n"
   local sz = row..col..row
   if #out > 0 then
     sz = sz..' | '..table.concat(out, ' | \n | ')..' | \n'
@@ -471,7 +738,7 @@ function profile.reportHTML(n,attr)
   local out = {}
   table.insert(out, "<table "..(attr or "")..">")
   -- header row
-  local headers = { "#", "Function", "Calls", "Time (s)", "Per Call (ms)", "Code" }
+  local headers = { "#", "Function", "Calls", "Time (s)", "Per Call (ms)", "Mem", "MemPerCall","Code" }
   table.insert(out, "<tr>")
   for i, h in ipairs(headers) do
     table.insert(out, "<th>" .. h .. "</th>")
@@ -480,9 +747,9 @@ function profile.reportHTML(n,attr)
   -- data rows
   for i, row in ipairs(report) do
     table.insert(out, "<tr>")
-    for j = 1, 6 do
+    for j = 1, 8 do
       local s = row[j]
-      if j == 4 or j == 5 then
+      if j == 4 or j == 5 or j == 6 or j == 7 then
         s = string.format("%.6f", s)
       end
       table.insert(out, "<td>" .. tostring(s) .. "</td>")
