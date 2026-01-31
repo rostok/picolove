@@ -615,7 +615,7 @@ function love.load(argv)
 			float wy = viewy - viewh/2 + screen_coords.y; // world y position
 			float cz = z - (wy-z);
 			if (isNaN(z)||isInf(z)) cz = vz;
-			gl_FragDepth = unlerp( viewy+viewh*1.0, viewy-viewh*1.0, cz ); // extend view so 0..1 of z is below and beneath of visible area
+			gl_FragDepth = unlerp( viewy+viewh*2.0, viewy-viewh*2.0, cz ); // extend view so 0..1 of z is below and beneath of visible area
 			//gl_FragDepth = clamp(gl_FragDepth,0.0,1.0);
 			//int index = int(color.r*15.0+0.5);
 			int index = int(color.r*63.0+0.5); // -- 64 colors
