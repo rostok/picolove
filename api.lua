@@ -2669,12 +2669,15 @@ end
 
 api.__meshVertices = {}
 api.__trimeshVertices = {}
-for i=1,128 do
+api.__ptsmeshVertices = {}
+for i=1,1024 do
 	api.__meshVertices[i] = {0,0,0}
 	api.__trimeshVertices[i] = {0,0,0}
+	api.__ptsmeshVertices[i] = {0,0,0}
 end
 api.__mesh = love.graphics.newMesh(api.__meshVertices,"fan","dynamic")
-api.__trimesh = love.graphics.newMesh(api.__meshVertices,"triangles","dynamic")
+api.__trimesh = love.graphics.newMesh(api.__trimeshVertices,"triangles","dynamic")
+api.__ptsmesh = love.graphics.newMesh(api.__ptsmeshVertices,"points","dynamic")
 
 function api.meshpolygonOLD(...)
     local cnt = select('#', ...);
