@@ -4123,9 +4123,9 @@ function api.manualGC(time_budget, memory_ceiling, disable_otherwise)
 	-- log(time_budget,steps)
 	--safety net
 	if memory_ceiling~=math.huge and collectgarbage("count") / 1024 > memory_ceiling then
-		log("GARBAGE COLLECT, exceeded "..memory_ceiling.."MB")
+		-- log("GARBAGE COLLECT, exceeded "..memory_ceiling.."MB")
 		collectgarbage("collect")
-		log("GARBAGE COLLECT DONE")
+		-- log("GARBAGE COLLECT DONE")
 	end
 	--don't collect gc outside this margin
 	if disable_otherwise then
