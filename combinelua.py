@@ -61,20 +61,29 @@ def process_line_for_stripping(line, in_multiline_comment):
     return processed_line, in_multiline_comment
 
 
-def process_file(input_path, strip_comments, processed_files=None):
+def process_file(input_path, strip_comments, include_stack=None):
     """
     Recursively processes a Lua file, handling #include directives and
     optionally stripping comments while preserving line numbers.
+    Tracks include_stack to prevent infinite recursion while allowing multiple inclusions.
     """
-    if processed_files is None:
-        processed_files = set()
+    # Normalize the path to ensure reliable string matching
+    input_path = os.path.normpath(input_path)
 
-    if input_path in processed_files:
-        return ""
+    if include_stack is None:
+        include_stack =[]
 
-    processed_files.add(input_path)
-    output = []
+    # If the current file is already in the current branch's stack, we have infinite recursion!
+    if input_path in include_stack:
+        recursion_path = " -> ".join(include_stack + [input_path])
+        print(f"Warning: Infinite recursion detected! {recursion_path}. Halting this branch...")
+        input_path_sanitized = input_path.replace('\\', '\\\\')
+        return f'fail("infinite recursion detected for {input_path_sanitized}")\n'
 
+    # Create a new list for the children, adding the current file to the stack
+    current_stack = include_stack + [input_path]
+    
+    output =[]
     include_pattern = re.compile(r'^\s*#include\s+["\']?([^"\'\s]+)["\']?')
 
     try:
@@ -88,7 +97,8 @@ def process_file(input_path, strip_comments, processed_files=None):
                     include_path = match.group(1)
                     resolved_path = resolve_path(input_path, include_path)
                     if os.path.exists(resolved_path):
-                        included_content = process_file(resolved_path, strip_comments, processed_files)
+                        # Pass the 'current_stack' down instead of a global processed_files set
+                        included_content = process_file(resolved_path, strip_comments, current_stack)
                         if not included_content.endswith('\n'):
                             included_content += '\n'
                         
