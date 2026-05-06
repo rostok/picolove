@@ -274,4 +274,67 @@ function gifpic:save(filename)
     assert(file:close())
 end
 
+-- save as 8-bit indexed BMP file
+function gifpic:saveBmp(filename)
+    local file = assert(io.open(filename, "wb"))
+    local w, h = self.width, self.height
+    local rowSize = math.ceil(w / 4) * 4 -- rows padded to 4-byte boundary
+    local paletteEntries = 256
+    local headerSize = 14 + 40 + paletteEntries * 4
+    local imageSize = rowSize * h
+    local fileSize = headerSize + imageSize
+
+    local function u16(v) return string.char(bit.band(v,0xFF), bit.band(bit.rshift(v,8),0xFF)) end
+    local function u32(v)
+        return string.char(
+            bit.band(v, 0xFF),
+            bit.band(bit.rshift(v, 8), 0xFF),
+            bit.band(bit.rshift(v, 16), 0xFF),
+            bit.band(bit.rshift(v, 24), 0xFF))
+    end
+
+    -- BMP file header (14 bytes)
+    file:write("BM")
+    file:write(u32(fileSize))
+    file:write(u32(0))            -- reserved
+    file:write(u32(headerSize))   -- pixel data offset
+
+    -- BITMAPINFOHEADER (40 bytes)
+    file:write(u32(40))           -- header size
+    file:write(u32(w))            -- width
+    file:write(u32(h))            -- height (positive = bottom-up)
+    file:write(u16(1))            -- planes
+    file:write(u16(8))            -- bits per pixel
+    file:write(u32(0))            -- compression (none)
+    file:write(u32(imageSize))    -- image size
+    file:write(u32(2835))         -- x pixels per meter (~72 dpi)
+    file:write(u32(2835))         -- y pixels per meter
+    file:write(u32(self.colors))  -- colors used
+    file:write(u32(0))            -- important colors
+
+    -- Color table (256 entries, BGRA)
+    for i = 0, paletteEntries - 1 do
+        local c = self.palette[i]
+        if c then
+            file:write(string.char(c[3] or 0, c[2] or 0, c[1] or 0, c[4] or 0))
+        else
+            file:write("\0\0\0\0")
+        end
+    end
+
+    -- Pixel data (bottom-up, padded rows)
+    local padding = string.rep("\0", rowSize - w)
+    for y = h - 1, 0, -1 do
+        local row = self.pixels[y]
+        local rowData = {}
+        for x = 0, w - 1 do
+            rowData[x + 1] = string.char(math.floor(row[x] or 0))
+        end
+        file:write(table.concat(rowData))
+        if #padding > 0 then file:write(padding) end
+    end
+
+    assert(file:close())
+end
+
 return gifpic
