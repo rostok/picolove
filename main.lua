@@ -1573,7 +1573,7 @@ function love.run()
 				-- api.manualGC(timeLeft/10,1024*4)
 				-- api.manualGC(timeLeft/5,1024*4)
 				-- api.manualGC(timeLeft/2,1024*8)
-				api.manualGC(timeLeft*0.9,1024*8)
+				if pico8.fastForward==nil or pico8.fastForward==0 then api.manualGC(timeLeft*0.9,1024*8) end
 				-- api.manualGC(timeLeft,1024*4)
 
 				timeLeft = 1.0/pico8.frameLimiter - (love.timer.getTime()-limiter_time)
@@ -1831,10 +1831,10 @@ function profileReport(counter, filename, depth)
 		love.system.setClipboardText( (report.."\n"):gsub('[^\n]*%+%-[^\n]*\n', ''):gsub('|', '\t') )
 		-- report = "<pre>"..report.."</pre>"
 
-		local report = profile.reportHTML(depth or 30," cellpadding=1 cellspacing=1 style='font-size:small'")
-		report = add_code_to_traceback(report,nil,true)
+		local reporthtml = profile.reportHTML(depth or 30," cellpadding=1 cellspacing=1 style='font-size:small'")
+		reporthtml = add_code_to_traceback(reporthtml,nil,true)
 
-		local html = profile.flameHTML(nil,report)
+		local html = profile.flameHTML(nil,reporthtml)
 
 		log(filename)
 		-- log(report)
@@ -1846,6 +1846,7 @@ function profileReport(counter, filename, depth)
 	end
 	return counter - 1
 end
+api._profileReport = profileReport
 
 function saveWindowState()
     local window = love.window
