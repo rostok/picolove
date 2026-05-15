@@ -153,7 +153,7 @@ pico8 = {
 		updateGCStats = function (self, steps, budget)
 			self.budgets[self.gcindex] = budget
 			self.steps  [self.gcindex] = steps
-			self.index = self.gcindex + 1
+			self.gcindex = self.gcindex + 1
 			if self.gcindex>self.buflen then self.gcindex = 1 end
 		end,
 		updateDStats = function (self, drawtime)
@@ -1595,18 +1595,24 @@ local function get_included_file_info(errLine, allLines)
     local stack = { { file = __pico_cart, content_start = 1 } }
     for i = 1, errLine do
         local line = allLines[i]
-        -- Check for an include start marker, e.g. "    -- /path/to/file.lua{"
+        -- Check for an include start marker, e.g. "    -- /path/to/file.lua{{{"
         local start_file = line:match("^%s*%-%-%s*([^%s]+){{{")
         if start_file then
             -- The actual included file content starts on the next line.
-            table.insert(stack, { file = start_file, content_start = i + 1 })
+            -- Remember the combined-line of the start marker so we can shift
+            -- the parent's content_start when this frame is popped.
+            table.insert(stack, { file = start_file, content_start = i + 1, start_line = i })
         end
-        -- Check for an include end marker, e.g. "    -- }/path/to/file.lua"
+        -- Check for an include end marker, e.g. "    -- }}}/path/to/file.lua"
         local end_file = line:match("^%s*%-%-%s*}}}([^%s]+)")
         if end_file and #stack > 1 then
             local top = stack[#stack]
             if top.file == end_file then
                 table.remove(stack, #stack)
+                -- Bump the parent's content_start by the number of lines the
+                -- include block injected on top of the original #include line.
+                local parent = stack[#stack]
+                parent.content_start = parent.content_start + (i - top.start_line)
             end
         end
     end
