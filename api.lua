@@ -168,21 +168,29 @@ function api.collectgarbage(opt,arg)
 end
 
 -- generic object to expose various api
+api.__picoloveTab = nil
+
+-- generic object to expose various api
 function api._picolove()
-	return {
-		__profiling=__profiling,
-		profile=profile,
-		profile_start =   function () profile.start() end,
-		profile_stop =    function () profile.stop() end,
-		profile_s_start = function () if __profiling.S>0 then profile.start() end end,
-		profile_s_stop =  function () if __profiling.S>0 then profile.stop() end end,
-		_G=_G,
-		timer=love.timer,
-		pico8=pico8,
-		love=love,
-		loaded_code=loaded_code,
-		load=function (code) local f = load(code) setfenv(f,pico8.cart) return f() end
-	}
+	if not api.__picoloveTab and pico8 then
+		api.__picoloveTab = {
+			__profiling=__profiling,
+			profile=profile,
+			profile_start =   function () profile.start() end,
+			profile_stop =    function () profile.stop() end,
+			profile_s_start = function () if __profiling.S>0 then profile.start() end end,
+			profile_s_stop =  function () if __profiling.S>0 then profile.stop() end end,
+			_G=_G,
+			timer=love.timer,
+			pico8=pico8,
+			love=love,
+			loaded_code=loaded_code,
+			load=function (code) local f = load(code) setfenv(f,pico8.cart) return f() end
+		}
+	end
+	if api.__picoloveTab then
+		return api.__picoloveTab
+	end
 end
 
 function api.__picolove_resize_canvas(w,h)
@@ -1072,6 +1080,78 @@ function api.utf8validate(input_str)
     end
 
     return string.char(unpack(result_bytes))
+end
+
+-- Reusable buffer to prevent table allocation every frame
+local utf8_buffer = {}
+
+function api.utf8validate(input_str)
+    if type(input_str) ~= "string" then return "" end
+    local n = #input_str
+    if n == 0 then return "" end
+
+    local i = 1
+    local buf_idx = 1
+    local completely_valid = true
+
+    while i <= n do
+        local b1 = string.byte(input_str, i)
+        local char_len = 0
+
+        -- Determine character byte length
+        if b1 < 0x80 then 
+            char_len = 1
+        elseif b1 >= 0xC2 and b1 <= 0xDF and i + 1 <= n then
+            local b2 = string.byte(input_str, i + 1)
+            if b2 >= 0x80 and b2 <= 0xBF then char_len = 2 end
+        elseif b1 >= 0xE0 and b1 <= 0xEF and i + 2 <= n then
+            local b2, b3 = string.byte(input_str, i + 1, i + 2)
+            if b2 >= 0x80 and b2 <= 0xBF and b3 >= 0x80 and b3 <= 0xBF then
+                -- Check for overlong forms and surrogates
+                if not ((b1 == 0xE0 and b2 < 0xA0) or (b1 == 0xED and b2 > 0x9F)) then
+                    char_len = 3
+                end
+            end
+        elseif b1 >= 0xF0 and b1 <= 0xF4 and i + 3 <= n then
+            local b2, b3, b4 = string.byte(input_str, i + 1, i + 3)
+            if b2 >= 0x80 and b2 <= 0xBF and b3 >= 0x80 and b3 <= 0xBF and b4 >= 0x80 and b4 <= 0xBF then
+                -- Check for overlong forms and codepoints > U+10FFFF
+                if not ((b1 == 0xF0 and b2 < 0x90) or (b1 == 0xF4 and b2 > 0x8F)) then
+                    char_len = 4
+                end
+            end
+        end
+
+        if char_len > 0 then
+            -- If we previously found an invalid char, we are now actively buffering the valid ones
+            if not completely_valid then
+                utf8_buffer[buf_idx] = string.sub(input_str, i, i + char_len - 1)
+                buf_idx = buf_idx + 1
+            end
+            i = i + char_len
+        else
+            -- Invalid byte found!
+            if completely_valid then
+                completely_valid = false
+                -- Retroactively copy the valid prefix we've scanned so far
+                if i > 1 then
+                    utf8_buffer[1] = string.sub(input_str, 1, i - 1)
+                    buf_idx = 2
+                end
+            end
+            i = i + 1 -- Skip the invalid byte
+        end
+    end
+
+    -- Fast path: if no invalid bytes were found, return the exact same string (Zero GC)
+    if completely_valid then
+        return input_str
+    end
+    
+    -- Clear any leftover junk in the buffer from previous large strings
+    for j = buf_idx, #utf8_buffer do utf8_buffer[j] = nil end
+    
+    return table.concat(utf8_buffer)
 end
 
 -- removes any utf8 diactrics
