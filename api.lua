@@ -1441,6 +1441,180 @@ function api.print(...)
 	return max_x_seen,max_y_seen
 end
 
+-- Reusable buffer for api.printmegashadow's parsed draw entries.
+-- Layout: flat array, 5 slots per entry — [kind('g'|'p'), ch_or_nil, x, y, color].
+-- Lives at file scope so subsequent calls reuse allocated slots (entries past
+-- the current count `n` are stale but ignored).
+local _pmsh_buf = {}
+
+--- Heavy-outline shadow variant of api.print. Parses the string ONCE into
+-- _pmsh_buf, then issues 8 batched shadow passes (constant color s) followed by
+-- 1 main pass (honoring inline \ac color changes). This preserves the original
+-- util.lua Z-order — every shadow pixel is drawn before any main glyph — while
+-- replacing 9 separate api.print invocations with a single parse and a single
+-- shader setup. Requires explicit x,y (no cursor/scroll path).
+function api.printmegashadow(text, x, y, c, s)
+	text = text or ""
+	c = c or 7
+	s = s or 0
+
+	local fw, fh, f = api._glyphSize()
+	local orig_col = c
+	local cur_col = c
+
+	local to_print = tostring(api.tostr(text))
+	to_print = api.convertDiactrics(to_print, f)
+
+	local curFont = love.graphics.getFont()
+
+	love.graphics.setShader(pico8.text_shader)
+	local sx, sy = flr(x), flr(y)
+	local xx, yy = sx, sy
+	local lx = xx
+	local cursorStack
+	local min_x_seen, max_x_seen = math.huge, -math.huge
+	local min_y_seen, max_y_seen = math.huge, -math.huge
+	local content_drawn = false
+	local n = 0
+
+	-- Pass 1: parse & buffer
+	local i = 1
+	while i <= #to_print do
+		local ch = to_print:sub(i, i)
+		if string.byte(ch) > 127 then
+			ch = to_print:sub(i, i+1)
+			if ch:len() == 1 then ch = "" end
+		end
+
+		if ch == '\a' then
+			local cmd_end = to_print:find(";", i+1, true)
+			local back = false
+			if not cmd_end then cmd_end = to_print:find("\a", i+1, true) back = true end
+			if not cmd_end then break end
+			local cmd = to_print:sub(i+1, cmd_end-1):lower()
+			i = cmd_end + (back and 0 or 1)
+
+			if cmd == 's' then
+				if not cursorStack then cursorStack = {} end
+				table.insert(cursorStack, {xx, yy})
+			elseif cmd == 'p' then
+				if not cursorStack then cursorStack = {} end
+				local pos = table.remove(cursorStack)
+				if pos then xx, yy = pos[1], pos[2] end
+			elseif cmd == 'r' then
+				if not cursorStack then cursorStack = {} end
+				local pos = cursorStack[#cursorStack]
+				if pos then xx, yy = pos[1], pos[2] end
+			elseif cmd:match("^x[+-]?%d+$") then
+				xx = xx + tonumber(cmd:sub(2))
+			elseif cmd:match("^y[+-]?%d+$") then
+				yy = yy + tonumber(cmd:sub(2))
+			elseif cmd:match("^h[+-]?%d+$") then
+				xx = sx + tonumber(cmd:sub(2)) * fw
+			elseif cmd == 'x-w' then xx = xx - fw
+			elseif cmd == 'xw'  then xx = xx + fw
+			elseif cmd == 'y-h' then yy = yy - fh
+			elseif cmd == 'yh'  then yy = yy + fh
+			elseif cmd:match("^c%d+$") then
+				cur_col = tonumber(cmd:sub(2))
+			elseif cmd == 'co' then
+				cur_col = orig_col
+			elseif cmd == 'i' then
+				local k = n * 5
+				_pmsh_buf[k+1] = 'p'
+				_pmsh_buf[k+2] = nil
+				_pmsh_buf[k+3] = xx
+				_pmsh_buf[k+4] = yy
+				_pmsh_buf[k+5] = cur_col
+				n = n + 1
+				min_x_seen = math.min(min_x_seen, xx)
+				max_x_seen = math.max(max_x_seen, xx)
+				min_y_seen = math.min(min_y_seen, yy)
+				max_y_seen = math.max(max_y_seen, yy)
+				content_drawn = true
+			end
+		elseif ch == '\t' then
+			local TAB_WIDTH_IN_CHARS = 4
+			local tab_width_pixels = TAB_WIDTH_IN_CHARS * fw
+			if tab_width_pixels > 0 then
+				xx = (math.floor(xx / tab_width_pixels) + 1) * tab_width_pixels
+			end
+			i = i + 1
+		elseif ch == '\b' then
+			xx = lx
+			i = i + 1
+		elseif ch == '\n' then
+			xx, yy = sx, yy + fh
+			i = i + 1
+		elseif ch == '\r' then
+			xx = sx
+			i = i + 1
+		else
+			if ch and ch:len() > 0 and curFont:hasGlyphs(string.byte(ch)) then
+				local cw = fw
+				ch = api.utf8validate(ch)
+				if api.FONTS[api.FONTNUM].varWidth then cw = api.FONTS[api.FONTNUM].font:getWidth(ch) + (api.FONTS[api.FONTNUM].hkerning or 0) end
+
+				min_x_seen = math.min(min_x_seen, xx)
+				max_x_seen = math.max(max_x_seen, xx + cw)
+				min_y_seen = math.min(min_y_seen, yy)
+				max_y_seen = math.max(max_y_seen, yy + fh)
+
+				local k = n * 5
+				_pmsh_buf[k+1] = 'g'
+				_pmsh_buf[k+2] = ch
+				_pmsh_buf[k+3] = xx
+				_pmsh_buf[k+4] = yy
+				_pmsh_buf[k+5] = cur_col
+				n = n + 1
+				content_drawn = true
+
+				lx = xx
+				xx = xx + cw
+			end
+			i = i + 1
+			if (string.byte(ch) or -1) > 127 then i = i + 1 end
+		end
+	end
+
+	-- Pass 2: 8 shadow batches in fixed shadow color, drawn entirely before mains.
+	if n > 0 then
+		color(s)
+		for dy = -1, 1 do
+			for dx = -1, 1 do
+				if dx ~= 0 or dy ~= 0 then
+					for j = 0, n-1 do
+						local k = j * 5
+						if _pmsh_buf[k+1] == 'g' then
+							love.graphics.print(_pmsh_buf[k+2], _pmsh_buf[k+3]+dx, _pmsh_buf[k+4]+dy)
+						else
+							love.graphics.points(_pmsh_buf[k+3]+dx, _pmsh_buf[k+4]+dy)
+						end
+					end
+				end
+			end
+		end
+
+		-- Pass 3: main glyphs on top, switching color only when it changes.
+		local last_col
+		for j = 0, n-1 do
+			local k = j * 5
+			local col = _pmsh_buf[k+5]
+			if col ~= last_col then color(col); last_col = col end
+			if _pmsh_buf[k+1] == 'g' then
+				love.graphics.print(_pmsh_buf[k+2], _pmsh_buf[k+3], _pmsh_buf[k+4])
+			else
+				love.graphics.points(_pmsh_buf[k+3], _pmsh_buf[k+4])
+			end
+		end
+	end
+
+	love.graphics.setShader(pico8.draw_shader)
+
+	if not content_drawn then return x, y end
+	return max_x_seen, max_y_seen
+end
+
 --- Calculates the pixel width and height a string would occupy if printed.
 -- This function simulates the printing process, including escape codes and P8SCII commands,
 -- to determine the bounding box of the rendered text.
@@ -4186,31 +4360,41 @@ function api.readFile(filename)
 	return nil
 end
 
-function api.manualGC(time_budget, memory_ceiling, disable_otherwise)
-	-- log("manualGC",time_budget, memory_ceiling, disable_otherwise)
-	time_budget = time_budget or 1e-3
-	memory_ceiling = memory_ceiling or math.huge
-	local max_steps = pico8.__stats.maxGCsteps or 100
+function api.manualGC(time_budget, memory_ceiling_mb, disable_otherwise)
+	time_budget = math.max(0, time_budget or 1e-3)
+	memory_ceiling_mb = memory_ceiling_mb or math.huge
+
+	local max_steps = pico8.__stats.maxGCsteps or 128
+	local step_size = pico8.__stats.GCstepSize or 32
+
 	local steps = 0
 	local start_time = love.timer.getTime()
-	while love.timer.getTime() - start_time < time_budget and steps < max_steps do
-		collectgarbage("step", 1)
+
+	while steps < max_steps and love.timer.getTime() - start_time < time_budget do
+		local cycle_done = collectgarbage("step", step_size)
 		steps = steps + 1
+
+		if cycle_done then
+			break
+		end
 	end
+
 	pico8.__stats.lastGCsteps = steps
-	pico8.__stats:updateGCStats(steps,time_budget)
-	-- log(steps,love.timer.getTime(),love.timer.getTime() - start_time,time_budget)
-	-- log(time_budget,steps)
-	--safety net
-	if memory_ceiling~=math.huge and collectgarbage("count") / 1024 > memory_ceiling then
-		-- log("GARBAGE COLLECT, exceeded "..memory_ceiling.."MB")
-		collectgarbage("collect")
-		-- log("GARBAGE COLLECT DONE")
+	pico8.__stats:updateGCStats(steps, time_budget)
+
+	if memory_ceiling_mb ~= math.huge then
+		local memory_mb = collectgarbage("count") / 1024
+		pico8.__stats.lastMemCount = memory_mb
+		if memory_mb > memory_ceiling_mb then
+			collectgarbage("collect")
+		end
 	end
-	--don't collect gc outside this margin
+
 	if disable_otherwise then
 		collectgarbage("stop")
 	end
+
+	return steps
 end
 
 local file_cache = {}
