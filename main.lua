@@ -1,11 +1,12 @@
+io.write("\27[2J\27c\27[H") -- clear screen/terminal
+print("picolove hello @ ".._VERSION.." / "..jit.version.." & Love2D "..table.concat({love.getVersion()},"."))
+
 package.path = package.path .. ";?.lua;lib/?.lua"
 love.filesystem.setRequirePath(package.path)
 
 profile = require("profile")
+jit.p = require("jit.p")
 
-
-io.write("\27[2J\27c\27[H") -- clear screen/terminal
-print("picolove hello @ ".._VERSION.." / "..jit.version.." & Love2D "..table.concat({love.getVersion()},"."))
 -- local debugserver = nil
 local debugserver = require("debugserver")
 if not debugserver.startServer(5555) then debugserver=nil end
@@ -141,7 +142,8 @@ pico8 = {
 	line_endpoint_y = 0,
 	__stats = {
 		buflen = 30,
-		maxGCsteps = 100, -- max number of garbage collector steps in manuaGC
+		maxGCsteps = 128, -- max number of garbage collector steps in manuaGC
+		GCstepSize = 32,  -- step size, step 1 is not good
 		lastGCsteps = -1, -- last gc steps
 		budgets   = {0},  -- time budgets for gc
 		steps     = {0},  -- steps taken
