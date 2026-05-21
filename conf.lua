@@ -21,6 +21,7 @@ __profiling = {
 	R = -1, -- special render/draw profiling for _draw()
 	U = -1, -- update profiling 
 	D = -1, -- draw profiling
+	M = -1, -- memory profiling, onlu single frame
 	frames = 15
 }
 __pico_nofocus_update = true -- if true will not pause on loosing focus

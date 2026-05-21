@@ -180,6 +180,7 @@ function api._picolove()
 			profile_stop =    function () profile.stop() end,
 			profile_s_start = function () if __profiling.S>0 then profile.start() end end,
 			profile_s_stop =  function () if __profiling.S>0 then profile.stop() end end,
+			memprofile=memprofile,
 			_G=_G,
 			timer=love.timer,
 			pico8=pico8,

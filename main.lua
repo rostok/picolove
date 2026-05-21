@@ -5,6 +5,7 @@ package.path = package.path .. ";?.lua;lib/?.lua"
 love.filesystem.setRequirePath(package.path)
 
 profile = require("profile")
+memprofile = require("memprofile")
 jit.p = require("jit.p")
 
 -- local debugserver = nil
@@ -1491,7 +1492,8 @@ function love.run()
 
 		-- api.mprof.pop()
 		-- api.mprof.push("update")
-		-- Call update and draw
+		if __profiling.M>0 and memprofile.state()~="started" then print(__profiling.M,memprofile.state()) memprofile.start() end
+   		-- Call update and draw
 		local render = false
 		while dt > pico8.frametime do
 			host_time = host_time + dt
@@ -1564,7 +1566,9 @@ function love.run()
 		-- debug server message handling, note that it can be uninitialized
 		debugserverUpdate()
 		-- api.mprof.pop()
-			
+   		if __profiling.M>0 and memprofile.state()=="started" then memprofile.stop() __profiling.M=__profiling.M-1 end
+	    if __profiling.M==0 then api.writeFile("memprof.txt", memprofile.report()) api.writeFile("memprof.html", memprofile.reportHTML()) __profiling.M=__profiling.M-1 end
+		
 		-- api.mprof.push("gc")
 		if love.timer then
 			if pico8.frameLimiter>0 then
