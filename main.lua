@@ -1462,6 +1462,7 @@ function love.run()
 	end
 
 	local dt = 0
+	local frameMemStart = 0
 
 	-- Main loop time.
 	return function()
@@ -1492,6 +1493,7 @@ function love.run()
 
 		-- api.mprof.pop()
 		-- api.mprof.push("update")
+		frameMemStart = collectgarbage("count")
 		if __profiling.M>0 and memprofile.state()~="started" then print(__profiling.M,memprofile.state()) memprofile.start() end
    		-- Call update and draw
 		local render = false
@@ -1568,6 +1570,7 @@ function love.run()
 		-- api.mprof.pop()
    		if __profiling.M>0 and memprofile.state()=="started" then memprofile.stop() __profiling.M=__profiling.M-1 end
 	    if __profiling.M==0 then api.writeFile("memprof.txt", memprofile.report()) api.writeFile("memprof.html", memprofile.reportHTML()) __profiling.M=__profiling.M-1 end
+	    pico8._frameAllocKB = collectgarbage("count") - frameMemStart
 		
 		-- api.mprof.push("gc")
 		if love.timer then
