@@ -1425,26 +1425,20 @@ end
 -- end
 
 function debugserverUpdate()
-	if debugserver then
-		local msg = debugserver.receive()
-		if msg~="" and msg~=nil then
-			if msg == "restart" then
-				love.event.quit( "restart" )
-				-- api.reload_cart()
-				-- api.run()
-				-- log('reloading cart')
-				-- if rawget(_G, 'jit') then jit.on() end -- turn on jit in case we hit jit off mode
-				-- collectgarbage()
-			elseif pico8.cart.game then
-				local a = pico8.cart.game.command(msg)
-				-- if a~=nil then pico8.cart.success(a) end
-			else
-				print("[debugserver] received unknown message: " .. (msg or "nil"))
-			end
+	if not debugserver then return end
+	local messages = debugserver.update()
+	for _, msg in ipairs(messages) do
+		if msg == "restart" then
+			love.event.quit("restart")
+		elseif pico8.cart.game then
+			pico8.cart.game.command(msg)
+		else
+			print("[debugserver] received unknown message: " .. msg)
 		end
 	end
 end
 api._debugserverUpdate = debugserverUpdate
+api.debugserver = debugserver
 
 function love.quit()
 	-- log("QUIT + WRITE PROFILER FILE")
