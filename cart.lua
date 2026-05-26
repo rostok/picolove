@@ -464,7 +464,7 @@ function cart.load_p8(filename)
 	-- api.writeFile("_code_patched.lua",lua);
 	lua = lua .. "\n_picolove_end()"
 
-	log("finished loading cart", filename)
+	log("finished loading cart", filename, " length", lua:len())
 
 	loaded_code = lua
 
