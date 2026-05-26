@@ -190,6 +190,9 @@ function api._picolove()
 		}
 	end
 	if api.__picoloveTab then
+		-- loaded_code is reassigned on every cart (re)load; the cached table would
+		-- otherwise keep the first snapshot, so refresh it live on each call
+		api.__picoloveTab.loaded_code = loaded_code
 		return api.__picoloveTab
 	end
 end
