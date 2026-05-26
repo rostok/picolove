@@ -246,6 +246,13 @@ host_time = 0
 local paused = false
 local focus = true
 
+-- shared error screen, used both in-loop (recoverable cart bugs -> reload_cart)
+-- and by love.errorhandler (engine crash -> restart only). see helpers near end.
+local error_screen = { text=nil, full=nil, fatal=false, mx=0, my=0, ms="", font=nil }
+local cart_err_msg
+local cart_error_handler
+local error_screen_set, error_screen_reload, error_screen_event, error_screen_draw
+
 local __audio_channels
 local __sample_rate = 22050
 local channels = 1
@@ -808,8 +815,23 @@ function love.load(argv)
 	end
 	
 	loadWindowState()
-	_load(initialcartname)
-	api.run()
+	if __no_pcall then
+		_load(initialcartname)
+		api.run()
+	else
+		-- catch first-boot syntax/runtime errors so we enter the recoverable error
+		-- screen (reload_cart) instead of the fatal restart-only handler
+		local ok, trace = xpcall(function()
+			_load(initialcartname)
+			api.run()
+		end, cart_error_handler)
+		if not ok then
+			print(cart_err_msg)
+			print(trace)
+			error_screen.fatal = false
+			error_screen_set(cart_err_msg, trace)
+		end
+	end
 end
 
 function new_sandbox()
@@ -871,14 +893,30 @@ end
 
 function love.update(frameDiff)
 	-- api.prof.push("frame")
+	if error_screen.text then return end -- cart frozen, wait for reload_cart
 	pico8.frames=pico8.frames+1
 	update_buttons()
 
 	if __profiling.U>0 then profile.start() end
-	if pico8.cart._update60 then
-		pico8.cart._update60(frameDiff)
-	elseif pico8.cart._update then
-		pico8.cart._update(frameDiff)
+	if __no_pcall then
+		if pico8.cart._update60 then
+			pico8.cart._update60(frameDiff)
+		elseif pico8.cart._update then
+			pico8.cart._update(frameDiff)
+		end
+	else
+		local ok, trace = true, nil
+		if pico8.cart._update60 then
+			ok, trace = xpcall(pico8.cart._update60, cart_error_handler, frameDiff)
+		elseif pico8.cart._update then
+			ok, trace = xpcall(pico8.cart._update, cart_error_handler, frameDiff)
+		end
+		if not ok then
+			print(cart_err_msg)
+			print(trace)
+			error_screen.fatal = false
+			error_screen_set(cart_err_msg, trace)
+		end
 	end
 	if __profiling.U>0 then profile.stop() end
 	
@@ -896,6 +934,10 @@ end
 
 function love.draw()
 	-- api.prof.push("frame")
+	if error_screen.text then -- cart frozen, draw the error screen instead
+		error_screen_draw()
+		return
+	end
 	api.setPicoCanvas()
 	restore_clip()
 	restore_camera()
@@ -905,7 +947,17 @@ function love.draw()
 	if __profiling.D>0 then profile.start() end
 	-- run the cart's draw function
 	if pico8.cart._draw then
-		pico8.cart._draw()
+		if __no_pcall then
+			pico8.cart._draw()
+		else
+			local ok, trace = xpcall(pico8.cart._draw, cart_error_handler)
+			if not ok then
+				print(cart_err_msg)
+				print(trace)
+				error_screen.fatal = false
+				error_screen_set(cart_err_msg, trace)
+			end
+		end
 	end
 	if __profiling.D>0 then profile.stop() end
 
@@ -1207,7 +1259,11 @@ local function isAltDown()
 end
 
 function love.keypressed(key)
-	if key == "f1" then 
+	if error_screen.text then
+		error_screen_event("keypressed", key)
+		return
+	end
+	if key == "f1" then
 		log("F1          	- help")
 		log("F3 / Ctrl8  	- start gif recording")
 		log("F4 / Ctrl9  	- end gif recording")
@@ -1420,6 +1476,19 @@ function love.wheelmoved(_, y)
 	pico8.mwheel = pico8.mwheel + y
 end
 
+-- mouse only used by the frozen error screen (hover highlight + click opens vscode)
+function love.mousepressed(x, y, button)
+	if error_screen.text then
+		error_screen_event("mousepressed", x, y, button)
+	end
+end
+
+function love.mousemoved(x, y)
+	if error_screen.text then
+		error_screen_event("mousemoved", x, y)
+	end
+end
+
 -- function love.graphics.point(x, y)
 	-- love.graphics.rectangle("fill", x, y, 1, 1)
 -- end
@@ -1430,10 +1499,20 @@ function debugserverUpdate()
 	for _, msg in ipairs(messages) do
 		if msg == "restart" then
 			love.event.quit("restart")
-		elseif pico8.cart.game then
-			pico8.cart.game.command(msg)
+		elseif msg == "reload_cart" then
+			error_screen_reload()
+		elseif pico8.cart and pico8.cart.game then
+			-- state is still in memory while frozen, so commands keep working for
+			-- inspection. but the cart is broken, so guard the call: a faulty
+			-- command must not escalate to fatal or clobber the current error screen.
+			if error_screen.text then
+				local ok, err = pcall(pico8.cart.game.command, msg)
+				if not ok then print("[debugserver] command error: " .. tostring(err)) end
+			else
+				pico8.cart.game.command(msg)
+			end
 		else
-			print("[debugserver] received unknown message: " .. msg)
+			print("[debugserver] received unknown message (no cart.game): " .. msg)
 		end
 	end
 end
@@ -1661,6 +1740,154 @@ local function error_printer(msg, layer)
 	print((trace:gsub("\n[^\n]+$", "")))
 end
 
+-- ===== shared error screen ====================================================
+-- builds/renders the picolove error screen (reddish bg, code links, hover).
+-- driven in-loop for recoverable cart bugs (reload_cart) and by love.errorhandler
+-- for engine crashes (restart only). error_screen.fatal selects the recovery verb.
+
+-- xpcall message handler: stash the message, return the cart-side traceback
+function cart_error_handler(msg)
+	cart_err_msg = tostring(msg)
+	return debug.traceback(nil, 2)
+end
+
+local function error_screen_copy()
+	if not love.system then return end
+	love.system.setClipboardText(error_screen.full or error_screen.text or "")
+	error_screen.text = (error_screen.text or "") .. "\nCopied to clipboard!"
+end
+
+local function error_screen_openlink()
+	local ms = error_screen.ms
+	if not ms or ms == "" or not love.system then return end
+	local base_path = "c:/projects/lua/schifahren/love/"
+	for file, number in ms:gmatch("([%w%-%._/\\]+%.lua):(%d+)") do
+		love.system.openURL("vscode://file/" .. base_path .. file .. ":" .. number)
+	end
+	for file, number in ms:gmatch("([%w%-%._]+%.p8):(%d+)") do
+		love.system.openURL("vscode://file/" .. base_path .. file .. ":" .. number)
+	end
+end
+
+-- format msg + traceback into the on-screen text (caller sets error_screen.fatal first)
+function error_screen_set(msg, trace)
+	msg = tostring(msg)
+	trace = trace or debug.traceback()
+	trace = add_code_to_traceback(trace, "\n  >> %1 \n")
+
+	local sanitizedmsg = {}
+	for char in msg:gmatch(utf8.charpattern) do
+		table.insert(sanitizedmsg, char)
+	end
+	sanitizedmsg = table.concat(sanitizedmsg)
+	local sanitizedmsgOld = sanitizedmsg
+	sanitizedmsg = add_code_to_traceback(sanitizedmsg, "\n  >> %1 \n")
+
+	local err = {}
+	table.insert(err, "Error\n")
+	table.insert(err, sanitizedmsg)
+	if #sanitizedmsgOld ~= #msg then
+		table.insert(err, "Invalid UTF-8 string in error message.")
+	end
+	table.insert(err, "\n")
+
+	for l in trace:gmatch("(.-)\n") do
+		if not l:match("boot.lua") then
+			l = l:gsub("stack traceback:", "Traceback\n")
+			table.insert(err, l)
+		end
+	end
+
+	local p = table.concat(err, "\n")
+	p = p:gsub("\t", ""):gsub("%[string \"(.-)\"%]", "%1")
+
+	error_screen.full = p
+	if love.system then
+		local action = error_screen.fatal and "restart love" or "reload cart"
+		p = p .. "\n\nPress Ctrl+C or tap to copy this error\n\nPress Ctrl+R to " .. action
+	end
+	error_screen.text = p
+	error_screen.ms = ""
+	error_screen.font = error_screen.font or love.graphics.newFont("dat/lucon.ttf", 14)
+end
+
+-- reload the cart and leave error mode. on a fatal (engine) crash hot-reload is
+-- impossible, so fall back to a restart.
+function error_screen_reload()
+	if error_screen.fatal then
+		log("fatal error: cannot hot-reload, restarting")
+		saveWindowState()
+		package.loaded["conf"] = nil
+		love.event.quit("restart")
+		return
+	end
+	log("reloading cart from error screen")
+	error_screen.text = nil
+	error_screen.full = nil
+	local ok, trace = xpcall(api.reload_cart, cart_error_handler)
+	if not ok then
+		print(cart_err_msg)
+		print(trace)
+		error_screen_set(cart_err_msg, trace)
+	end
+end
+
+-- handle one event; returns a non-nil value only for the fatal poll-loop (quit code)
+function error_screen_event(e, a, b, c) -- luacheck: no unused
+	if e == "quit" then
+		return a or 1
+	elseif e == "keypressed" and a == "escape" then
+		return error_screen.fatal and 1 or nil
+	elseif e == "keypressed" and a == "q" and love.keyboard.isDown("lctrl", "rctrl") then
+		love.event.quit()
+	elseif e == "keypressed" and a == "c" and love.keyboard.isDown("lctrl", "rctrl") then
+		error_screen_copy()
+	elseif e == "keypressed" and a == "r" and love.keyboard.isDown("lctrl", "rctrl") then
+		error_screen_reload()
+	elseif e == "touchpressed" then
+		local name = love.window.getTitle()
+		if #name == 0 or name == "Untitled" then name = "Game" end
+		local buttons = { "OK", "Cancel" }
+		if love.system then buttons[3] = "Copy to clipboard" end
+		local pressed = love.window.showMessageBox("Quit " .. name .. "?", "", buttons)
+		if pressed == 1 then
+			return error_screen.fatal and 1 or nil
+		elseif pressed == 3 then
+			error_screen_copy()
+		end
+	elseif e == "mousepressed" then
+		error_screen_openlink()
+	elseif e == "mousemoved" then
+		error_screen.mx, error_screen.my = a, b
+	end
+end
+
+function error_screen_draw()
+	if not error_screen.text or not love.graphics.isActive() then return end
+	love.graphics.setCanvas()
+	love.graphics.setShader()
+	love.graphics.setScissor()
+	love.graphics.origin()
+	love.graphics.setFont(error_screen.font)
+
+	local pos = 32
+	love.graphics.clear(0.3, 0.1, 0.1) -- reddish
+	local d = pos
+	local h = error_screen.font:getHeight()
+	error_screen.ms = ""
+	for l in (error_screen.text .. "\n"):gmatch("(.-)\n") do
+		love.graphics.setColor(.8, .8, .8)
+		if error_screen.my > d and error_screen.my < d + h then
+			love.graphics.setColor(1, 1, 0)
+			error_screen.ms = l
+		end
+		love.graphics.printf(l, pos, d, love.graphics.getWidth() - pos)
+		d = d + h
+	end
+	love.graphics.present()
+end
+-- ===== end shared error screen ================================================
+
 function love.errorhandler(msg)
 	msg = tostring(msg)
 
@@ -1695,133 +1922,25 @@ function love.errorhandler(msg)
 	if love.audio then love.audio.stop() end
 
 	love.graphics.reset()
-	-- local font = love.graphics.setNewFont(14)
-	local font = love.graphics.setNewFont("dat/lucon.ttf",14)
 
-	love.graphics.setColor(1, 1, 1)
-
-	local trace = debug.traceback()
-    trace = add_code_to_traceback(trace,"\n  >> %1 \n")
-
-	love.graphics.origin()
-
-	local sanitizedmsg = {}
-    -- msg = add_code_to_traceback(msg,"\n  >> %1 \n")
-	for char in msg:gmatch(utf8.charpattern) do
-		table.insert(sanitizedmsg, char)
-	end
-	sanitizedmsg = table.concat(sanitizedmsg)
-	local sanitizedmsgOld = sanitizedmsg
-    sanitizedmsg = add_code_to_traceback(sanitizedmsg,"\n  >> %1 \n")
-
-	local err = {}
-
-	table.insert(err, "Error\n")
-	table.insert(err, sanitizedmsg)
-
-	if #sanitizedmsgOld ~= #msg then
-		table.insert(err, "Invalid UTF-8 string in error message.")
-	end
-
-	table.insert(err, "\n")
-
-	for l in trace:gmatch("(.-)\n") do
-		if not l:match("boot.lua") then
-			l = l:gsub("stack traceback:", "Traceback\n")
-			table.insert(err, l)
-		end
-	end
-
-	local p = table.concat(err, "\n")
-	p = p:gsub("\t", ""):gsub("%[string \"(.-)\"%]", "%1")
-
-	local mx,my=0,0
-	local ms=""
-
-	local function draw()
-		if not love.graphics.isActive() then return end
-		local pos = 32
-		love.graphics.clear(89/255, 157/255, 220/255) -- blueish
-		love.graphics.clear(0.3,0.1,0.1) -- reddish
-		-- love.graphics.printf(p, pos, pos, love.graphics.getWidth() - pos)
-		local d = pos
-		local h = love.graphics.getFont( ):getHeight()
-		for l in p:gmatch("(.-)\n") do
-			love.graphics.setColor( .8,.8,.8 )
-			if my>d and my<d+h then 
-				love.graphics.setColor( 1,1,0 ) 
-				ms = l
-			end
-			love.graphics.printf(l, pos, d, love.graphics.getWidth() - pos)
-			d = d + h
-		end
-		love.graphics.present()
-	end
-
-	local fullErrorText = p
-	local function copyToClipboard()
-		if not love.system then return end
-		love.system.setClipboardText(fullErrorText)
-		p = p .. "\nCopied to clipboard!"
-	end
-
-	if love.system then
-		p = p .. "\n\nPress Ctrl+C or tap to copy this error" .. "\n\nPress Ctrl+R to restart"
-	end
+	-- engine-level crash: same screen as the in-loop handler, but only a restart
+	-- can recover (we cannot return to the normal love.run loop from here)
+	error_screen.fatal = true
+	error_screen_set(msg)
 
 	return function()
 		love.event.pump()
 
 		for e, a, b, c in love.event.poll() do
-			if e == "quit" then
-				return a or 1
-			elseif e == "keypressed" and a == "escape" then
-				return 1
-			elseif e == "keypressed" and a == "c" and love.keyboard.isDown("lctrl", "rctrl") then -- ctrl+c
-				copyToClipboard()
-			elseif e == "keypressed" and a == "r" and love.keyboard.isDown("lctrl", "rctrl") then -- ctrl+r
-                log("restarting from error");
-			    saveWindowState()
-                package.loaded["conf"] = nil
-                love.event.quit('restart')
-                --love.load({__pico_cart})
-                --love.graphics.setCanvas()
-                --api.reload_cart()
-                --api.run()
-			elseif e == "touchpressed" then
-				local name = love.window.getTitle()
-				if #name == 0 or name == "Untitled" then name = "Game" end
-				local buttons = {"OK", "Cancel"}
-				if love.system then
-					buttons[3] = "Copy to clipboard"
-				end
-				local pressed = love.window.showMessageBox("Quit "..name.."?", "", buttons)
-				if pressed == 1 then
-					return 1
-				elseif pressed == 3 then
-					copyToClipboard()
-				end
-			elseif e == "mousepressed" then
-				log("mousepressed",e,a,b,c,ms)
-				-- local number = ms:match("schifahren%-game%-combined%.p8:(%d+)")
-				local base_path = "c:/projects/lua/schifahren/love/"
-				for file, number in ms:gmatch("([%w%-%._/\\]+%.lua):(%d+)") do
-					love.system.openURL("vscode://file/" .. base_path .. file .. ":" .. number)
-				end
-				
-				for file, number in ms:gmatch("([%w%-%._]+%.p8):(%d+)") do
-					love.system.openURL("vscode://file/" .. base_path .. file .. ":" .. number)
-				end
-			elseif e == "mousemoved" then
-				-- log("mousemoved",e,a,b,c)
-				mx,my = a,b
-			end
+			local r = error_screen_event(e, a, b, c)
+			if r then return r end
 		end
 
 		-- debug server message handling, note that it can be uninitialized
+		-- (reload_cart here falls back to a restart, see error_screen_reload)
 		debugserverUpdate()
 
-		draw()
+		error_screen_draw()
 
 		if love.timer then
 			love.timer.sleep(0.1)
