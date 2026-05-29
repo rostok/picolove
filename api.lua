@@ -45,6 +45,8 @@ api.ffi = require("ffi")
 api.love_thread = require("love.thread")
 api.love_system = require("love.system")
 api.love_timer = require("love.timer")
+api.analprof = require("analprof")
+api.getSaveDir = function() return love.filesystem.getSaveDirectory() end
 api._print = print
 
 local function color(c)
