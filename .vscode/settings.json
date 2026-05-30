@@ -1,4 +1,5 @@
 {
+    "picolove.enabled" : true,
     "Lua.diagnostics.globals": [
         "love"
     ]
