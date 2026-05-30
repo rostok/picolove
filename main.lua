@@ -8,6 +8,9 @@ profile = require("profile")
 memprofile = require("memprofile")
 jit.p = require("jit.p")
 
+-- local jit_v = require("jit.v")
+-- jit_v.on("jit_log_optimized.txt")
+
 -- local debugserver = nil
 local debugserver = require("debugserver")
 if not debugserver.startServer(5555) then debugserver=nil end
