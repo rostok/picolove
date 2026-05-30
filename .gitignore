@@ -17,3 +17,4 @@ pico8
 /.cocoindex_code/
 prof.txt
 prof.html
+jit_log*.txt
