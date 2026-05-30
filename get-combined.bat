@@ -1,5 +1,6 @@
 @echo off
 chcp 65001
+cd \projects\lua\schifahren\love
 ::set a=%DATE:-=%-%TIME::=%
 ::set a=%a: =0%
 ::set a=%a:~0,-5%
