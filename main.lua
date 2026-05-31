@@ -11,6 +11,37 @@ jit.p = require("jit.p")
 -- local jit_v = require("jit.v")
 -- jit_v.on("jit_log_optimized.txt")
 
+if jit and jit.opt then
+    jit.opt.start(
+        3, 
+        -- Triggery i progi aktywacji
+        "hotloop=10",       -- Domyślnie: 56. Liczba iteracji pętli przed próbą jej skompilowania.
+                            -- Obniżenie do 10 wymusza kompilację niemal natychmiast.
+        
+        "hotexit=2",        -- Domyślnie: 10. Liczba opuszczeń śladu (np. wejście w "else"), 
+                            -- po której kompilator uzna rozgałęzienie za "gorące" i skompiluje alternatywną ścieżkę.
+        
+        -- Limity struktur sterujących (rozgałęzienia)
+        "maxside=400",      -- Domyślnie: 100. Maksymalna liczba tzw. "side traces" (odgałęzień) dla głównego śladu.
+                            -- Bardzo przydatne przy gęstych instrukcjach "if-else" i drzewach decyzyjnych AI.
+        
+        "maxsnap=2000",     -- Domyślnie: 500. Maksymalna liczba "migawek" stanu w jednym śladzie, 
+                            -- potrzebnych do awaryjnego powrotu do interpretera. Pomaga przy głębokim zagnieżdżeniu.
+
+        "sizemcode=256",    -- default is 128   Size of each machine code area in KBytes
+        "maxmcode=65536",   -- default 16384    Max. total size of all machine code areas in KBytes
+        "maxtrace=65536",   -- default 2000     Max. number of traces in the cache
+        "maxrecord=65536",  -- default 8000     Max. number of recorded IR instructions
+
+        -- Unrollery (rozwijanie pętli i wywołań)
+        "loopunroll=16",    -- Agresywniejsze unrollowanie pętli.
+        "callunroll=4"      -- Agresywniejsze inlinowanie wywołań funkcji.
+    )
+   jit.off()
+   jit.flush()
+   jit.on()
+end
+
 -- local debugserver = nil
 local debugserver = require("debugserver")
 if not debugserver.startServer(5555) then debugserver=nil end
