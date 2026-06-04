@@ -594,6 +594,11 @@ end
 
 api._canvasFrameNumber = nil
 api._canvasGrabbed = nil
+api._canvasGrabbedPtr = nil
+
+local _ffi = require("ffi")
+local _pixelLUT = {}
+for _i = 0, 255 do _pixelLUT[_i] = math.floor(_i * 63/255 + 0.5) end
 
 function api.pget(x, y)
 	x= x - pico8.camera_x - 1
@@ -609,12 +614,10 @@ function api.pget(x, y)
 			love.graphics.setCanvas()
 			api._canvasGrabbed = pico8.screen:newImageData()
 			api._canvasGrabbedW,api._canvasGrabbedH = api._canvasGrabbed:getDimensions()
+			api._canvasGrabbedPtr = _ffi.cast("uint8_t*", api._canvasGrabbed:getPointer())
 			api.setPicoCanvas()
 		end
-		local r = 0
-		if x >= 0 and x < api._canvasGrabbedW and y >= 0 and y < api._canvasGrabbedH then r = api._canvasGrabbed:getPixel(flr(x), flr(y)) end
-		-- return r*15
-		return flr(r*63+0.5) -- 64 colors
+		return _pixelLUT[api._canvasGrabbedPtr[(math.floor(y) * api._canvasGrabbedW + math.floor(x)) * 4]]
 	end
 	return -1
 end
