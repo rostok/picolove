@@ -1619,7 +1619,23 @@ function love.run()
 					-- determine how many sub-updates to run this frame
 					local steps = 1
 
-					if (pico8.fastForwardFrames or 0) > 0 then
+					if (pico8.ffBudget or 0) > 0 then
+						-- time budget mode: run updates until ffBudget seconds of real time pass, then gc steps for 5% of budget,
+						-- one draw, no sleep, no time debt; used by F10, z-hold, storytest
+						-- ffBudget is cleared before every update, so the cart must set it again in each update to keep going
+						local budget = pico8.ffBudget
+						local ffEnd = updateStart + budget
+						local n = 0
+						repeat
+							pico8.ffBudget = nil
+							love.update(pico8.frametime)
+							n = n + 1
+						until (pico8.ffBudget or 0) <= 0 or n >= (pico8.ffMax or 4096) or love.timer.getTime() > ffEnd
+						steps = 0
+						api.manualGC(budget * 0.05)
+						pico8.ffActive = true
+						pico8.clearDTdelay = true
+					elseif (pico8.fastForwardFrames or 0) > 0 then
 						-- frame countdown mode
 						steps = pico8.fastForwardTemp or 1 -- fastForwardTemp works only when fastForwardFrames is set
 						pico8.fastForwardFrames = math.max(0, (pico8.fastForwardFrames or 0) - steps)
@@ -1689,16 +1705,17 @@ function love.run()
 				-- api.manualGC(timeLeft/10,1024*4)
 				-- api.manualGC(timeLeft/5,1024*4)
 				-- api.manualGC(timeLeft/2,1024*8)
-				if pico8.fastForward==nil or pico8.fastForward==0 then api.manualGC(timeLeft*0.9,1024*8) end
+				if (pico8.fastForward==nil or pico8.fastForward==0) and not pico8.ffActive then api.manualGC(timeLeft*0.9,1024*8) end
 				-- api.manualGC(timeLeft,1024*4)
 
 				timeLeft = 1.0/pico8.frameLimiter - (love.timer.getTime()-limiter_time)
-				if pico8.disableFrameSleep then timeLeft = 0 end
+				if pico8.disableFrameSleep or pico8.ffActive then timeLeft = 0 end
 				love.timer.sleep( timeLeft )
 			else
 				-- love.timer.sleep(0.000001)
 			end
 		end
+		pico8.ffActive = false
 		-- api.mprof.pop()
 		-- api.mprof.pop() -- top level frame
 		-- TOTAL_FRAME_TIME = love.timer.getTime() - TOTAL_FRAME_TIME
