@@ -5,12 +5,16 @@ local server
 local clients = {}
 
 function debugserver.startServer(portNumber)
-    server = assert(socket.tcp(), "Failed to create TCP socket")
+    -- always IPv4: with tcp() + "*" one instance may get [::] and another 0.0.0.0, both on the same port
+    server = assert(socket.tcp4(), "Failed to create TCP socket")
     server:settimeout(0)
+    -- luasocket turns reuseaddr on: a second instance would bind and listen on a busy port without an error
+    server:setoption("reuseaddr", false)
 
-    local ok, err = server:bind("*", portNumber)
+    local ok, err = server:bind("0.0.0.0", portNumber)
     if not ok then
-        print("Error: Debug server not started. server:bind() error: " .. err)
+        print("Debug server port " .. portNumber .. " not available: " .. err)
+        server:close()
         server = nil
         return false
     end
@@ -24,6 +28,12 @@ function debugserver.startServer(portNumber)
 
     print("Debug server started on port " .. portNumber)
     return true
+end
+
+function debugserver.stopServer()
+    for _, c in ipairs(clients) do c:close() end
+    clients = {}
+    if server then server:close() server = nil end
 end
 
 -- non-blocking: accept any pending clients, then read any pending lines from

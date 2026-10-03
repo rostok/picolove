@@ -43,8 +43,7 @@ if jit and jit.opt then
 end
 
 -- local debugserver = nil
-local debugserver = require("debugserver")
-if not debugserver.startServer(5555) then debugserver=nil end
+local debugserver = require("debugserver") -- started in love.load (startDebugServer) after the -env args
 -- sometimes 1234 is exluded, check with netsh interface ipv4 show excludedportrange protocol=tcp
 -- use this : net stop winnat & net start winnat
 require("strict")
@@ -71,6 +70,7 @@ local initialcartname = nil -- used by esc
 local love_args = nil -- luacheck: no unused
 
 pico8 = {
+	env = {}, -- command line -env key=value (strings); player keys: identity, dbgport, nodbg; the cart reads the rest
 	frameLimiter = __pico_fps_limiter,
 	clip = nil,
 	fps = 30,
@@ -831,6 +831,10 @@ function love.load(argv)
 			elseif argv[argpos] == "-global_api" then
 				--local n = argv[argpos + 1]
 				paramcount = 1
+			elseif argv[argpos] == "-env" then -- -env key=value, repeatable, value defaults to "1"
+				paramcount = 1
+				local k, v = tostring(argv[argpos + 1] or ""):match("^([^=]+)=?(.*)$")
+				if k then pico8.env[k] = v ~= "" and v or "1" end
 			elseif argv[argpos] == "--test" then -- picolove commands
 				paramcount = 0
 				require("test")
@@ -847,7 +851,17 @@ function love.load(argv)
 	if initialcartname == nil or initialcartname == "" then
 		initialcartname = __pico_cart or "nocart.p8"
 	end
-	
+
+	-- separate save dir per instance (parallel storytest workers), before any file access
+	if pico8.env.identity then love.filesystem.setIdentity(pico8.env.identity) end
+	startDebugServer()
+	-- -env mute: master volume stays 0, the cart sets it every frame from its config (game.preUpdate)
+	if pico8.env.mute then
+		local setVolume = love.audio.setVolume
+		setVolume(0)
+		love.audio.setVolume = function() setVolume(0) end
+	end
+
 	loadWindowState()
 	if __no_pcall then
 		_load(initialcartname)
@@ -1527,11 +1541,32 @@ end
 	-- love.graphics.rectangle("fill", x, y, 1, 1)
 -- end
 
+-- debug console server: first free port from -env dbgport (default 5555) up to +9, none with -env nodbg;
+-- the chosen port is logged and written to dbgport.txt in the save dir (gconsole reads it)
+function startDebugServer()
+	local port = tonumber(pico8.env.dbgport) or 5555
+	local started = nil
+	if not pico8.env.nodbg then
+		for p = port, port + 9 do
+			if debugserver.startServer(p) then started = p break end
+		end
+	end
+	if started then
+		if started ~= port then print("WARNING: debug server port "..port.." busy, using "..started) end
+		love.filesystem.write("dbgport.txt", tostring(started))
+	else
+		debugserver = nil
+		love.filesystem.remove("dbgport.txt")
+	end
+	api.debugserver = debugserver
+end
+
 function debugserverUpdate()
 	if not debugserver then return end
 	local messages = debugserver.update()
 	for _, msg in ipairs(messages) do
 		if msg == "restart" then
+			debugserver.stopServer() -- love.load binds again after the restart
 			love.event.quit("restart")
 		elseif msg == "reload_cart" then
 			error_screen_reload()
@@ -1570,6 +1605,7 @@ function love.run()
 
 	local dt = 0
 	local frameMemStart = 0
+	local loopCount = 0
 
 	-- Main loop time.
 	return function()
@@ -1577,6 +1613,7 @@ function love.run()
 		-- api.mprof.push("frame") -- top level frame
 		-- api.mprof.push("pre-update")
 		local limiter_time = love.timer.getTime() -- for __pico_fps_limiter / pico.frameLimiter
+		loopCount = loopCount + 1
 
 		-- Process events.
 		if love.event then
@@ -1602,6 +1639,14 @@ function love.run()
 		-- api.mprof.push("update")
 		frameMemStart = collectgarbage("count")
 		if __profiling.M>0 and memprofile.state()~="started" then print(__profiling.M,memprofile.state()) memprofile.start() end
+		-- unlimited fast forward (storytest limit=0): pico8.forcedFastForward updates in every loop iteration,
+		-- no waiting for dt to reach frametime, no frame sleep, no idle gc; pico8.renderEvery presents only every
+		-- Nth iteration (vsync blocks each present)
+		local ffNoLimit = pico8.ffNoLimit and pico8.forcedFastForward and not paused
+		if ffNoLimit then
+			pico8.ffActive = true
+			if dt <= pico8.frametime then dt = pico8.frametime * 1.001 end
+		end
    		-- Call update and draw
 		local render = false
 		while dt > pico8.frametime do
@@ -1669,6 +1714,7 @@ function love.run()
 		-- api.mprof.pop()
 
 		-- api.mprof.push("draw")
+		if ffNoLimit and loopCount % (pico8.renderEvery or 1) ~= 0 then render = false end
 		if render and love.graphics and love.graphics.isActive() then
 			love.graphics.origin()
 			if not paused and focus then
