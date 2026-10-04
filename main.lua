@@ -1066,6 +1066,8 @@ function flip_screen(pixel_perfect)
 
     -- Draw the scaled pico8 screen centered on the LOVE display
     love.graphics.draw(pico8.screen, x_offset, y_offset, 0, scale, scale)
+    -- B114: the transform the screen was really drawn with, the mouse (api getmousex / getmousey) maps through it
+    pico8.screenScale, pico8.screenX, pico8.screenY = scale, x_offset, y_offset
 
     -- love.graphics.setShader()
 	-- love.graphics.setColor(0,0,0,.2)

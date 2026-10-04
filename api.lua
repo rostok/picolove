@@ -115,11 +115,15 @@ local function setfps(fps)
 	pico8.frametime = 1 / pico8.fps
 end
 
+-- B114: map through the transform flip_screen drew the screen with (scale, letterbox offsets, pixelperfect, canvas
+-- resizes); the global scale of love.resize ignored the centering and was stale after a canvas resize
 local function getmousex()
+	if pico8.screenScale then return flr((love.mouse.getX() - pico8.screenX) / pico8.screenScale) end
 	return flr((love.mouse.getX() - xpadding) / scale)
 end
 
 local function getmousey()
+	if pico8.screenScale then return flr((love.mouse.getY() - pico8.screenY) / pico8.screenScale) end
 	return flr((love.mouse.getY() - ypadding) / scale)
 end
 
