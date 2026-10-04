@@ -3519,6 +3519,9 @@ function api.reload_cart(new_cart_filename)
     local load_success = _load(target_cartname)
 
     if load_success then
+        -- compiled traces keep their constants alive (the old cart's sounds, world, grids), flush them so the old cart can be collected
+        if jit then jit.flush() end
+        collectgarbage("collect")
         -- log("Cart '" .. target_cartname .. "' loaded successfully by _G._load.")
         -- 3. Call api.run() to initialize the newly loaded cart
         --    api.run() should call the cart's _init() function (if it exists)
