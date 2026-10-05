@@ -605,8 +605,8 @@ local _pixelLUT = {}
 for _i = 0, 255 do _pixelLUT[_i] = math.floor(_i * 63/255 + 0.5) end
 
 function api.pget(x, y)
-	x= x - pico8.camera_x - 1
-	y= y - pico8.camera_y - 1
+	x= x - pico8.camera_x -- B126: pixel primitives light x, y (were x-1, y-1)
+	y= y - pico8.camera_y
 	if
 		x >= 0
 		and x < pico8.resolution[1]
@@ -2494,7 +2494,7 @@ function api.line0(x0, y0, x1, y1, col)
 end
 
 -- hybrid approach with hor/vertical lines being drawn by love.graphics.line
-function api.line1(x0, y0, x1, y1, col)
+function api.unused_line1(x0, y0, x1, y1, col)
 	if not x0 then -- Invalidates the current endpoint.
     	pico8.line_endpoint_x = nil
 	    pico8.line_endpoint_y = nil
@@ -2652,26 +2652,42 @@ function api.line2(x0, y0, x1, y1, col)
 	pico8.line_endpoint_x = x1
 	pico8.line_endpoint_y = y1
 	
-	-- x0 = flr(x0 or 0) + 1 -- x0 = flr(tonumber(x0) or 0) + 1
-	-- y0 = flr(y0 or 0) + 1 -- y0 = flr(tonumber(y0) or 0) + 1
-	-- x1 = flr(x1 or 0) + 1 -- x1 = flr(tonumber(x1) or 0) + 1
-	-- y1 = flr(y1 or 0) + 1 -- y1 = flr(tonumber(y1) or 0) + 1
-	if x0<=x1 then
-		x0,x1=flr(x0-.5),math.ceil(x1)
-	else
-		x0,x1=math.ceil(x0),flr(x1-.5)
+	-- B126: the fast line. It lights exactly the pixels of api.line (the original Bresenham: one pixel thick, both end pixels, ties
+	-- resolved the same way; api.line is the reference, the test compares them on 800 random segments), drawn by love.graphics.line:
+	--  * the line runs through the pixel centres and is as wide as one pixel measured along the minor axis (width = major / length),
+	--    so it covers exactly one pixel per column (x major) or row (y major) and never gets thicker on a slope
+	--  * both ends are extended by 1/4 pixel along the major axis, the centre of an end pixel would be a tie of the rasterizer
+	--  * a tie between two pixels of the minor axis is resolved the way Bresenham does it, towards the direction of travel: the line is
+	--    moved by 0.7 of the tie distance (1 / major) that way
+	--  * a segment of 1 or 2 pixels is drawn with points
+	-- no pixel offset is needed (the pixel x, y is lit for the integer x, y), so this function is not in the wrapper list at the end of the file
+	x0, y0, x1, y1 = flr(x0), flr(y0), flr(x1), flr(y1)
+	local dx, dy = x1 - x0, y1 - y0
+	local adx, ady = dx < 0 and -dx or dx, dy < 0 and -dy or dy
+	local major = adx > ady and adx or ady
+	if major <= 1 then
+		if major == 0 then return love.graphics.points(x0 + .5, y0 + .5) end
+		return love.graphics.points(x0 + .5, y0 + .5, x1 + .5, y1 + .5)
 	end
-	if y0<=y1 then
-		y0,y1=flr(y0-.5),math.ceil(y1)
+	local ux, uy = dx / major, dy / major
+	local nudge = .7 / major
+	local nx, ny = 0, 0
+	if adx >= ady then
+		if dy > 0 then ny = nudge elseif dy < 0 then ny = -nudge end
 	else
-		y0,y1=math.ceil(y0),flr(y1-.5)
+		if dx > 0 then nx = nudge elseif dx < 0 then nx = -nudge end
 	end
-	
-	return love.graphics.line(x0,y0,x1,y1)
+	local lg = love.graphics
+	local style = lg.getLineStyle()
+	lg.setLineStyle("rough")
+	lg.setLineWidth(major / math.sqrt(dx * dx + dy * dy))
+	lg.line(x0 + .5 - ux * .25 + nx, y0 + .5 - uy * .25 + ny, x1 + .5 + ux * .25 + nx, y1 + .5 + uy * .25 + ny)
+	lg.setLineWidth(1)
+	lg.setLineStyle(style)
 end
 
 -- full love.graphics.line
-function api.line3(x0, y0, x1, y1, col)
+function api.unused_line3(x0, y0, x1, y1, col)
 	if not x0 then -- Invalidates the current endpoint.
     	pico8.line_endpoint_x = nil
 	    pico8.line_endpoint_y = nil
@@ -2881,7 +2897,7 @@ function api.line4(x0, y0, x1, y1, col)
 end
 
 -- love2d line
-function api.line5(x0, y0, x1, y1, col)
+function api.unused_line5(x0, y0, x1, y1, col)
 	if not x0 then -- Invalidates the current endpoint.
     	pico8.line_endpoint_x = nil
 	    pico8.line_endpoint_y = nil
@@ -4493,5 +4509,26 @@ end
 api.lognl = io.write
 
 api.api = api -- self reference
+
+-- B126: the pixel primitives (everything built on love.graphics.points, plus the explicit -1 in rectfill / circfill) light the pixel
+-- x-1, y-1 for the integer argument x, y ("screen starts from 1,1" at the top of this file), while line3, polygon fill, sprites and every
+-- love vector call light x, y. Every pixel primitive is now drawn translated by (+1,+1), so pset(x, y) lights the pixel x, y like in pico8 and
+-- like the vector primitives; debug outlines of colliders and the pathfinder overlay need no corrections any more (api.pget reads x, y)
+-- also the variants the game calls by name; line2 is the fast line and lights x, y by itself (it is not wrapped), unused_line1 / 3 / 5 are not
+-- used any more, oval, ovalfill, circfillpoly and polygon are not wrapped (vector calls or not in use)
+do
+	local lg = love.graphics
+	for _, name in ipairs({ "pset", "psets", "circ", "circfill", "rect", "rectfill", "line",
+			"line0", "line4", "rect1", "rectfill1", "circ2", "circfill2" }) do
+		local f = api[name]
+		api[name] = function(...)
+			lg.push()
+			lg.translate(1, 1)
+			local a, b = f(...)
+			lg.pop()
+			return a, b
+		end
+	end
+end
 
 return api
